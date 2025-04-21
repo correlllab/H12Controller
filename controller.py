@@ -32,52 +32,90 @@ class ControllerWrapper():
     def __init__(self):
         self.arm_ctrl = H1_2_ArmController()
         self.finger_ctrl = H1HandController()
-        self.arm_ik = H1_2_ArmIK(Visualization = False)
-        self.arm_ctrl.speed_gradual_max()
-        self.left_arm = start_left
+        self.arm_ik = H1_2_ArmIK(Visualization=False)
+
+        self.left_arm = start_left  # [x, y, z, roll, pitch, yaw]
         self.right_arm = start_right
+        self.max_velocity = 0.1  # meters per second
+        self.step_hz = 50  # control loop frequency (Hz)
+
         self.set_arms_pose(*self.left_arm, *self.right_arm)
         self.set_fingers(np.ones(6), np.ones(6))
 
     def set_fingers(self, left_hand_array, right_hand_array):
         self.finger_ctrl.crtl(right_hand_array, left_hand_array)
-    def set_arms_pose(self, Lx, Ly, Lz, Lroll, Lpitch, Lyaw, Rx, Ry, Rz, Rroll, Rpitch, Ryaw):
-        ###
-        #ToDo:
-        #  prevent trajectory from hitting body
-        #  add maximum velocity and torque limits
-        #  add emergency stop
-        ###
 
-        # Check if the arms are in a safe position
+    def n_steps(self, x, y, z, arm):
+        current_position = self.left_arm[:3] if arm == "left" else self.right_arm[:3]
+        target_position = np.array([x, y, z])
+        distance = np.linalg.norm(target_position - current_position)
+        dt = 1.0 / self.step_hz
+        steps = int(np.ceil(distance / (self.max_velocity * dt)))
+        return max(steps, 1)
+
+    def set_arms_pose(self, Lx, Ly, Lz, Lroll, Lpitch, Lyaw, Rx, Ry, Rz, Rroll, Rpitch, Ryaw):
         if in_safety_cylinder(Lx, Ly, Lz):
-            print(f"Left pose In safety cylinder {Lx=}, {Ly=}, {Lz=}")
+            print(f"Left pose in safety cylinder {Lx=}, {Ly=}, {Lz=}")
             return
         if in_safety_cylinder(Rx, Ry, Rz):
-            print(f"Right pose In safety cylinder {Rx=}, {Ry=}, {Rz=}")
+            print(f"Right pose in safety cylinder {Rx=}, {Ry=}, {Rz=}")
             return
-        self.left_arm = [Lx, Ly, Lz, Lroll, Lpitch, Lyaw]
-        self.right_arm = [Rx, Ry, Rz, Rroll, Rpitch, Ryaw]
-        current_lr_arm_q  = self.arm_ctrl.get_current_dual_arm_q()
-        current_lr_arm_dq = self.arm_ctrl.get_current_dual_arm_dq()
 
-        constructed_l_target = rpy_xyz_to_matrix(*self.left_arm)
-        constructed_r_target = rpy_xyz_to_matrix(*self.right_arm)
+        steps = max(self.n_steps(Lx, Ly, Lz, "left"), self.n_steps(Rx, Ry, Rz, "right"))
+        print(f"Interpolating in {steps} steps at {self.step_hz}Hz")
 
-        sol_q, sol_tauff  = self.arm_ik.solve_ik(constructed_l_target, constructed_r_target, current_lr_arm_q, current_lr_arm_dq)
-        self.arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
-    def set_arm_pose(self, x,y,z,r,p,yaw, arm="left"):
-        # Check if the arms are in a safe position
+        start_left_arm = self.left_arm.copy()
+        start_right_arm = self.right_arm.copy()
+
+        for i in range(steps + 1):
+            alpha = i / steps
+
+            current_L = [
+                start_left_arm[j] + alpha * (np.array([Lx, Ly, Lz, Lroll, Lpitch, Lyaw])[j] - start_left_arm[j])
+                for j in range(6)
+            ]
+            current_R = [
+                start_right_arm[j] + alpha * (np.array([Rx, Ry, Rz, Rroll, Rpitch, Ryaw])[j] - start_right_arm[j])
+                for j in range(6)
+            ]
+
+            self.left_arm = current_L
+            self.right_arm = current_R
+
+            constructed_l_target = rpy_xyz_to_matrix(*self.left_arm)
+            constructed_r_target = rpy_xyz_to_matrix(*self.right_arm)
+
+            current_lr_arm_q = self.arm_ctrl.get_current_dual_arm_q()
+            current_lr_arm_dq = self.arm_ctrl.get_current_dual_arm_dq()
+
+            sol_q, sol_tauff = self.arm_ik.solve_ik(
+                constructed_l_target,
+                constructed_r_target,
+                current_lr_arm_q,
+                current_lr_arm_dq
+            )
+
+            if sol_q is None or sol_tauff is None:
+                print(f"IK failed at step {i}")
+                break
+
+            self.arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
+            time.sleep(1.0 / self.step_hz)
+
+    def set_arm_pose(self, x, y, z, r, p, yaw, arm="left"):
         if in_safety_cylinder(x, y, z):
-            print(f"Pose In safety cylinder {x=}, {y=}, {z=}")
+            print(f"{arm.capitalize()} pose in safety cylinder {x=}, {y=}, {z=}")
             return
+
         if arm == "left":
             self.left_arm = [x, y, z, r, p, yaw]
         elif arm == "right":
             self.right_arm = [x, y, z, r, p, yaw]
         else:
             raise ValueError("Invalid arm specified. Use 'left' or 'right'.")
+
         self.set_arms_pose(*self.left_arm, *self.right_arm)
+
 
 if __name__ == '__main__':
     # arm
@@ -107,7 +145,6 @@ if __name__ == '__main__':
         cv2.createTrackbar("Roll", "Arm Control", 0, 360, nothing)
         cv2.createTrackbar("Pitch", "Arm Control", 0, 360, nothing)
         cv2.createTrackbar("Yaw", "Arm Control", 0, 360, nothing)
-
         while True:
             # Get values from the trackbars
             x = (cv2.getTrackbarPos("X", "Arm Control")-500) / 1000.0

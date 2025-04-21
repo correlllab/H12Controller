@@ -53,10 +53,6 @@ class H1_2_ArmController:
         self.arm_velocity_limit = 20.0
         self.control_dt = 1.0 / 250.0
 
-        self._speed_gradual_max = False
-        self._gradual_start_time = None
-        self._gradual_time = None
-
         # initialize lowcmd publisher and lowstate subscriber
         ChannelFactoryInitialize(0)
         
@@ -141,6 +137,7 @@ class H1_2_ArmController:
                 arm_tauff_target = self.tauff_target
 
             cliped_arm_q_target = self.clip_arm_q_target(arm_q_target, velocity_limit = self.arm_velocity_limit)
+            #print("L2 norm of diff:", np.linalg.norm(arm_q_target-cliped_arm_q_target))
 
             for idx, id in enumerate(H1_2_JointArmIndex):
                 self.msg.motor_cmd[id].q = cliped_arm_q_target[idx]
@@ -148,18 +145,13 @@ class H1_2_ArmController:
                 self.msg.motor_cmd[id].tau = arm_tauff_target[idx]      
 
             self.msg.crc = self.crc.Crc(self.msg)
-            self.publisher.Write(self.msg)
-
-            if self._speed_gradual_max is True:
-                t_elapsed = start_time - self._gradual_start_time
-                self.arm_velocity_limit = 20.0 + (10.0 * min(1.0, t_elapsed / 5.0))
+            self.publisher.Write(self.msg)           
 
             current_time = time.time()
             all_t_elapsed = current_time - start_time
             sleep_time = max(0, (self.control_dt - all_t_elapsed))
             time.sleep(sleep_time)
-            # print(f"arm_velocity_limit:{self.arm_velocity_limit}")
-            # print(f"sleep_time:{sleep_time}")
+            
 
     def ctrl_dual_arm(self, q_target, tauff_target):
         '''Set control target values q & tau of the left and right arm motors.'''
@@ -196,16 +188,6 @@ class H1_2_ArmController:
                 print("[H1_2_ArmController] both arms have reached the home position.")
                 break
             time.sleep(0.05)
-
-    def speed_gradual_max(self, t = 5.0):
-        '''Parameter t is the total time required for arms velocity to gradually increase to its maximum value, in seconds. The default is 5.0.'''
-        self._gradual_start_time = time.time()
-        self._gradual_time = t
-        self._speed_gradual_max = True
-
-    def speed_instant_max(self):
-        '''set arms velocity to the maximum value immediately, instead of gradually increasing.'''
-        self.arm_velocity_limit = 30.0
 
     def _Is_weak_motor(self, motor_index):
         weak_motors = [
