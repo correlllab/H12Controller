@@ -36,8 +36,8 @@ class ControllerWrapper():
 
         self.left_arm = start_left  # [x, y, z, roll, pitch, yaw]
         self.right_arm = start_right
-        self.max_velocity = 0.1  # meters per second
-        self.step_hz = 50  # control loop frequency (Hz)
+        self.max_velocity = 0.5  # meters per second
+        self.step_hz = 100  # control loop frequency (Hz)
 
         self.set_arms_pose(*self.left_arm, *self.right_arm)
         self.set_fingers(np.ones(6), np.ones(6))
@@ -62,7 +62,6 @@ class ControllerWrapper():
             return
 
         steps = max(self.n_steps(Lx, Ly, Lz, "left"), self.n_steps(Rx, Ry, Rz, "right"))
-        print(f"Interpolating in {steps} steps at {self.step_hz}Hz")
 
         start_left_arm = self.left_arm.copy()
         start_right_arm = self.right_arm.copy()
@@ -100,6 +99,7 @@ class ControllerWrapper():
                 break
 
             self.arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
+            #print(f"Step {i}/{steps}: Left Arm: {self.left_arm}, Right Arm: {self.right_arm}")
             time.sleep(1.0 / self.step_hz)
 
     def set_arm_pose(self, x, y, z, r, p, yaw, arm="left"):
@@ -108,13 +108,13 @@ class ControllerWrapper():
             return
 
         if arm == "left":
-            self.left_arm = [x, y, z, r, p, yaw]
+            self.set_arms_pose(*[x,y,z,r,p,yaw], *self.right_arm)
         elif arm == "right":
-            self.right_arm = [x, y, z, r, p, yaw]
+            self.set_arms_pose(*self.left_arm, *[x,y,z,r,p,yaw])
         else:
             raise ValueError("Invalid arm specified. Use 'left' or 'right'.")
 
-        self.set_arms_pose(*self.left_arm, *self.right_arm)
+        
 
 
 if __name__ == '__main__':
