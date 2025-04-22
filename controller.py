@@ -204,7 +204,7 @@ if __name__ == '__main__':
             print(f"Failed to load image from {image_path}")
 
         cv2.createTrackbar("X", "Arm Control", 500, 1000, nothing)
-        cv2.createTrackbar("Y", "Arm Control", 500, 1000, nothing)
+        cv2.createTrackbar("Y", "Arm Control", 700, 1000, nothing)
         cv2.createTrackbar("Z", "Arm Control", 500, 1000, nothing)
         cv2.createTrackbar("Roll", "Arm Control", 0, 360, nothing)
         cv2.createTrackbar("Pitch", "Arm Control", 0, 360, nothing)
@@ -219,11 +219,12 @@ if __name__ == '__main__':
             yaw = np.deg2rad(cv2.getTrackbarPos("Yaw", "Arm Control"))
 
             # Print the values for debugging
-            print(f"X: {x}, Y: {y}, Z: {z}, Roll: {roll}, Pitch: {pitch}, Yaw: {yaw}")
+            # print(f"X: {x}, Y: {y}, Z: {z}, Roll: {roll}, Pitch: {pitch}, Yaw: {yaw}")
 
             # Set the arm pose using the values
             
-            controller.set_arm_velocity(x, y, z, roll, pitch, yaw, arm=arm)
+            controller.set_arm_pose(x, y, z, roll, pitch, yaw, arm=arm)
+            controller.set_fingers(np.array([1, 1, 1, 1, 1, 1]), np.array([1, 1, 1, 1, 1, 1]))
 
             # Break the loop if 'q' is pressed
             if cv2.waitKey(1) & 0xFF == ord('q'):
