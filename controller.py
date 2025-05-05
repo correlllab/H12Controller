@@ -10,6 +10,12 @@ from scipy.spatial.transform import Rotation as R
 
 from pose_constraints import start_left, start_right, in_safety_cylinder, out_of_range
 import cv2
+import pinocchio as pin
+from scipy.spatial.transform import Rotation as R
+
+import threading
+import matplotlib
+matplotlib.use("Agg") 
 
 def rpy_xyz_to_matrix( x, y, z, roll, pitch, yaw):
     r = R.from_euler('xyz', [roll, pitch, yaw])
@@ -39,7 +45,8 @@ class ControllerWrapper():
         self.max_velocity = 0.5  # meters per second
         self.step_hz = 50  # control loop frequency (Hz)
         self.loop_dt = 1.0 / self.step_hz
-
+        self.q = None
+        self.tau = None
         self.set_arms_pose(*self.left_arm, *self.right_arm)
         self.set_fingers(np.ones(6), np.ones(6))
 
@@ -53,6 +60,68 @@ class ControllerWrapper():
         dt = 1.0 / self.step_hz
         steps = int(np.ceil(distance / (self.max_velocity * dt)))
         return max(steps, 1)
+    
+    def get_ee_pose(self, arm="L"):
+        # 1. Get the configuration we want to inspect
+        q = self.q
+
+        # 2. Use ONE data object
+        data = self.arm_ik.reduced_robot.data        # already exists
+
+        # 3. Forward kinematics + frame placements
+        pin.framesForwardKinematics(self.arm_ik.reduced_robot.model, data, q)
+        pin.updateFramePlacements(self.arm_ik.reduced_robot.model, data)
+
+        # 4. Pick the frame
+        fid = self.arm_ik.reduced_robot.model.getFrameId("L_ee") if arm.upper().startswith("L") else self.arm_ik.reduced_robot.model.getFrameId("R_ee")
+        # fid = self.arm_ik.reduced_robot.model.getFrameId("left_wrist_yaw_link") if arm.upper().startswith("L") else self.arm_ik.reduced_robot.model.getFrameId("R_ee")
+
+        T_ref_EE = data.oMf[fid]                        # world → EE
+
+        # 6. Decompose
+        x, y, z = T_ref_EE.translation
+        roll, pitch, yaw = R.from_matrix(T_ref_EE.rotation).as_euler('xyz', degrees=False)
+        return x, y, z, roll, pitch, yaw
+
+    def get_frame_wrench(
+            self,
+            arm="left",
+            tau_meas=None,                      # raw motor torques, shape (nv,)
+            strip_model=True,
+            ref=pin.ReferenceFrame.LOCAL_WORLD_ALIGNED):
+        """
+        Cartesian wrench [Fx, Fy, Fz, Mx, My, Mz] acting on L_ee or R_ee.
+        """
+        # --------- 0. Resolve arm name -----------------------------------
+        arm = arm.lower()[0]                   # 'left' → 'l', 'L' → 'l'
+        frame_name = "L_ee" if arm == 'l' else "R_ee"
+
+        # --------- 1. Acquire torques ------------------------------------
+        # If the caller didn’t supply tau_meas, fall back to self.tau
+        if tau_meas is None:
+            tau_meas = self.tau                # <── NEW
+        if strip_model and tau_meas is None:
+            raise ValueError("tau_meas required when strip_model=True")
+
+        model = self.arm_ik.reduced_robot.model
+        data  = self.arm_ik.reduced_robot.data
+        q     = self.q
+        v     = getattr(self, "dq", np.zeros(model.nv))
+        a     = np.zeros(model.nv)
+
+        # Predicted gravity / inertia torques
+        tau_model = pin.rnea(model, data, q, v, a) if strip_model else 0.0
+        tau_ext   = tau_meas - tau_model
+
+        # --------- 2. Spatial Jacobian -----------------------------------
+        pin.computeJointJacobians(model, data, q)
+        fid = model.getFrameId(frame_name)
+        J   = pin.computeFrameJacobian(model, data, q, fid, ref)   # 6 × nv
+
+        # --------- 3. Solve  Jᵀ w = τ_ext  -------------------------------
+        wrench, *_ = np.linalg.lstsq(J.T, tau_ext, rcond=None)
+        return wrench 
+            
 
     def set_arms_pose(self, Lx, Ly, Lz, Lroll, Lpitch, Lyaw, Rx, Ry, Rz, Rroll, Rpitch, Ryaw):
         if in_safety_cylinder(Lx, Ly, Lz):
@@ -105,15 +174,19 @@ class ControllerWrapper():
             if sol_q is None or sol_tauff is None:
                 print(f"IK failed at step {i}")
                 break
-
+            self.q = sol_q
+            self.tau = sol_tauff
             self.arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
             #print(f"Step {i}/{steps}: Left Arm: {self.left_arm}, Right Arm: {self.right_arm}")
             elapsed = time.perf_counter() - loop_start
             sleep_time = self.loop_dt - elapsed
             time.sleep(max(0, sleep_time))
         return
-    
-    def set_arms_velocity(self, vLx, vLy, vLz, vLroll, vLpitch, vLyaw, vRx, vRy, vRz, vRroll, vRpitch, vRyaw, total_time=1):
+    def set_arms_velocity(self, vLx, vLy, vLz, vLroll, vLpitch, vLyaw, vRx, vRy, vRz, vRroll, vRpitch, vRyaw, total_time=1, blocking=True):
+        if not blocking:
+            t = threading.Thread(target=self.set_arms_velocity, args=(vLx, vLy, vLz, vLroll, vLpitch, vLyaw, vRx, vRy, vRz, vRroll, vRpitch, vRyaw, total_time, True), daemon=True)
+            t.start()
+            return t
         start_time = time.time()
         v_left = [vLx, vLy, vLz, vLroll, vLpitch, vLyaw]
         v_right = [vRx, vRy, vRz, vRroll, vRpitch, vRyaw]
@@ -151,17 +224,19 @@ class ControllerWrapper():
             if sol_q is None or sol_tauff is None:
                 print(f"IK failed at step {i}")
                 break
-
+            self.q = sol_q
+            self.tau = sol_tauff
             self.arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
 
             elapsed = time.perf_counter() - loop_start
             sleep_time = self.loop_dt - elapsed
             time.sleep(max(0, sleep_time))
-    def set_arm_velocity(self, vx, vy, vz, vroll, vpitch, vyaw, arm="left", total_time=1):
+
+    def set_arm_velocity(self, vx, vy, vz, vroll, vpitch, vyaw, arm="left", total_time=1, blocking=True):
         if arm == "left":
-            self.set_arms_velocity(vx, vy, vz, vroll, vpitch, vyaw, 0,0,0,0,0,0, total_time=total_time)
+            self.set_arms_velocity(vx, vy, vz, vroll, vpitch, vyaw, 0,0,0,0,0,0, total_time=total_time, blocking=blocking)
         elif arm == "right":
-            self.set_arms_velocity(0,0,0,0,0,0, vx, vy, vz, vroll, vpitch, vyaw, total_time=total_time)
+            self.set_arms_velocity(0,0,0,0,0,0, vx, vy, vz, vroll, vpitch, vyaw, total_time=total_time, blocking=blocking)
         else:
             raise ValueError("Invalid arm specified. Use 'left' or 'right'.")
             
@@ -184,59 +259,58 @@ class ControllerWrapper():
 if __name__ == '__main__':
     # arm
     controller = ControllerWrapper()
-    arm = "left"
-    try:
-        i = 0
-        #print("\n\n\n")
-        controller.set_fingers(np.ones(6), np.ones(6))
-        #Lx, Ly, Lz, Lroll, Lpitch, Lyaw = user_input, 0.2, 0, 0.0, 0.0, 0.0
-        def nothing(x):
-            pass
+    print(f"{controller.get_ee_pose('left')=}")
 
-        # Create an OpenCV window with trackbars for 6 floating point inputs
-        cv2.namedWindow("Arm Control")
-        # Load and display an image from the assets folder
-        image_path = "/home/humanoid/Programs/simple_arm_controller/assets/h1-2_tf.jpg"
-        image = cv2.imread(image_path)
-        if image is not None:
-            cv2.imshow("Arm Control", image)
-        else:
-            print(f"Failed to load image from {image_path}")
+    
+    i = 0
+    #print("\n\n\n")
+    controller.set_fingers(np.ones(6), np.ones(6))
+    #Lx, Ly, Lz, Lroll, Lpitch, Lyaw = user_input, 0.2, 0, 0.0, 0.0, 0.0
+    def nothing(x):
+        pass
 
-        cv2.createTrackbar("X", "Arm Control", 500, 1000, nothing)
-        cv2.createTrackbar("Y", "Arm Control", 700, 1000, nothing)
-        cv2.createTrackbar("Z", "Arm Control", 500, 1000, nothing)
-        cv2.createTrackbar("Roll", "Arm Control", 0, 360, nothing)
-        cv2.createTrackbar("Pitch", "Arm Control", 0, 360, nothing)
-        cv2.createTrackbar("Yaw", "Arm Control", 0, 360, nothing)
-        while True:
-            # Get values from the trackbars
-            x = (cv2.getTrackbarPos("X", "Arm Control")-500) / 1000.0
-            y = (cv2.getTrackbarPos("Y", "Arm Control")-500) / 1000.0
-            z = (cv2.getTrackbarPos("Z", "Arm Control")-500) / 1000.0
-            roll = np.deg2rad(cv2.getTrackbarPos("Roll", "Arm Control"))
-            pitch = np.deg2rad(cv2.getTrackbarPos("Pitch", "Arm Control"))
-            yaw = np.deg2rad(cv2.getTrackbarPos("Yaw", "Arm Control"))
+    # Create an OpenCV window with trackbars for 6 floating point inputs
+    window_name = "ArmPositionControl"
+    cv2.namedWindow(window_name)
 
-            # Print the values for debugging
-            # print(f"X: {x}, Y: {y}, Z: {z}, Roll: {roll}, Pitch: {pitch}, Yaw: {yaw}")
+    cv2.createTrackbar("X", window_name, 500, 1000, nothing)
+    cv2.createTrackbar("Y", window_name, 700, 1000, nothing)
+    cv2.createTrackbar("Z", window_name, 500, 1000, nothing)
+    cv2.createTrackbar("Roll", window_name, 360, 720, nothing)
+    cv2.createTrackbar("Pitch", window_name, 360, 720, nothing)
+    cv2.createTrackbar("Yaw", window_name, 360, 720, nothing)
+    cv2.createTrackbar("Fingers", window_name, 0, 100, nothing)
+    cv2.createTrackbar("Arm", window_name, 0, 1, nothing)
+    cv2.createTrackbar("Publish", window_name, 1, 1, nothing)
+    while True:
+        # Get values from the trackbars
+        x = (cv2.getTrackbarPos("X", window_name)-500) / 1000.0
+        y = (cv2.getTrackbarPos("Y", window_name)-500) / 1000.0
+        z = (cv2.getTrackbarPos("Z", window_name)-500) / 1000.0
+        roll = np.deg2rad(cv2.getTrackbarPos("Roll", window_name) - 360)
+        pitch = np.deg2rad(cv2.getTrackbarPos("Pitch", window_name) - 360)
+        yaw = np.deg2rad(cv2.getTrackbarPos("Yaw", window_name) - 360)
+        fingers = cv2.getTrackbarPos("Fingers", window_name) / 100.0
 
-            # Set the arm pose using the values
-            
+        # Print the values for debugging
+        # print(f"X: {x}, Y: {y}, Z: {z}, Roll: {roll}, Pitch: {pitch}, Yaw: {yaw}")
+
+        # Set the arm pose using the values
+        if cv2.getTrackbarPos("Publish", window_name) == 1:
+            arm = "left" if cv2.getTrackbarPos("Arm", window_name) == 0 else "right"
+            pose = [x,y,z,roll, pitch, yaw]
+            print(f"going to {arm} {pose=}")
             controller.set_arm_pose(x, y, z, roll, pitch, yaw, arm=arm)
-            controller.set_fingers(np.array([1, 1, 1, 1, 1, 1]), np.array([1, 1, 1, 1, 1, 1]))
+            controller.set_fingers(np.ones(6) * fingers, np.ones(6) * fingers)
+            print(f"{controller.get_ee_pose(arm=arm)=}")
+            print(f"{controller.get_frame_wrench('left')=}")
+        #controller.set_arm_velocity(x, y, z, roll, pitch, yaw, arm=arm, blocking=False)
 
-            # Break the loop if 'q' is pressed
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
+        #print(f"{controller.get_ee_pose('left')=}")
 
-        cv2.destroyAllWindows()
-            
-    except KeyboardInterrupt:
-        print("KeyboardInterrupt, exiting program...")
-    except Exception as e:
-        print(f"Exception occurred: {e}")
-    finally:
-        #arm_ctrl.ctrl_dual_arm_go_home()
-        print("Finally, exiting program...")
-        exit(0)
+        # controller.set_fingers(np.ones(6), np.ones(6))
+        # Break the loop if 'q' is pressed
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cv2.destroyAllWindows()

@@ -33,8 +33,6 @@ class H1HandController:
             if self.handstate.msg:
                 self.state = self.handstate.msg
             time.sleep(0.01)
-            # print(f'left finger: {self.state.states[0].q}, {self.state.states[1].q}, {self.state.states[2].q}, {self.state.states[3].q}, {self.state.states[4].q}, {self.state.states[5].q}')
-            # print(f'right finger: {self.state.states[6].q}, {self.state.states[7].q}, {self.state.states[8].q}, {self.state.states[9].q}, {self.state.states[10].q}, {self.state.states[11].q}')
 
     def ctrl(self, label):
         if label in self.labels:

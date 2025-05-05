@@ -5,7 +5,7 @@ basic_pose_L = Lx, Ly, Lz, Lroll, Lpitch, Lyaw = 0.373, 0.323, 0.223, 0.0, 0.589
 basic_pose_r = Rx, Ry, Rz, Rroll, Rpitch, Ryaw = 0.373, -0.323, 0.223, 0.0, 0.0, 0.5899991834424116
 
 def in_safety_cylinder(x, y, z):
-    radius = 0.2
+    radius = 0.1
     height = 1.0
 
     # Check radial distance from z-axis
@@ -16,12 +16,13 @@ def in_safety_cylinder(x, y, z):
     return within_radius and within_height
 
 def out_of_range(x,y,z, arm):
+    return False
     sphere_center = np.array([0, 0.148, 0.423])
     if arm == "left":
         sphere_center[1] *= 1
     elif arm == "right":
         sphere_center[1] *= -1
-    sphere_radius = 0.70
+    sphere_radius = 0.90
     point = np.array([x, y, z])
     distance = np.linalg.norm(point - sphere_center)
     return distance > sphere_radius

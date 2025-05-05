@@ -117,6 +117,8 @@ class H1_2_ArmIK:
                               np.array([0.05,0,0]).T),
                       pin.FrameType.OP_FRAME)
         )
+        self.reduced_robot.data = self.reduced_robot.model.createData()
+
 
         # for i in range(self.reduced_robot.model.nframes):
         #     frame = self.reduced_robot.model.frames[i]
