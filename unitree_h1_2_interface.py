@@ -1,3 +1,4 @@
+import time
 import numpy as np
 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber, ChannelPublisher
@@ -25,8 +26,6 @@ class StateSubscriber:
         self._dq = np.zeros(NUM_MOTOR)
         self._tau = np.zeros(NUM_MOTOR)
 
-        # initialize channel
-        ChannelFactoryInitialize(id=0)
         # subscribe low state
         self.low_state_subscriber = ChannelSubscriber(TOPIC_LOWSTATE, LowState_)
         self.low_state_subscriber.Init(self.subscribe_low_state, 10)
@@ -48,11 +47,17 @@ class StateSubscriber:
     @property
     def get_tau(self):
         return np.copy(self._tau)
-    
+
 class CommandPublisher:
     def __init__(self):
-        # initialize channel
-        ChannelFactoryInitialize(id=0)
+        # variables saving states
+        self.mode = np.zeros(NUM_MOTOR, dtype=np.int32)
+        self.q = np.zeros(NUM_MOTOR)
+        self.dq = np.zeros(NUM_MOTOR)
+        self.tau = np.zeros(NUM_MOTOR)
+        self.kp = np.zeros(NUM_MOTOR)
+        self.kd = np.zeros(NUM_MOTOR)
+
         # publish low command
         self.low_cmd_publisher = ChannelPublisher(TOPIC_LOWCMD, LowCmd_)
         self.low_cmd_publisher.Init()
@@ -69,16 +74,35 @@ class CommandPublisher:
             target=self.publish_low_cmd,
             name='low_cmd_thread'
         )
-        self.low_cmd_thread.Start()
+
+        print('CommandPublisher initialized.')
+        print('All joints are locked in the initial position.')
 
     def publish_low_cmd(self):
+        # start_time = time.time()
         for i in range(NUM_MOTOR):
-            self.low_cmd.motor_cmd[i].mode = 1
-            self.low_cmd.motor_cmd[i].q = 0.0
-            self.low_cmd.motor_cmd[i].dq = 0.0
-            self.low_cmd.motor_cmd[i].tau = 0.0
-            self.low_cmd.motor_cmd[i].kp = 10.0
-            self.low_cmd.motor_cmd[i].kd = 3.0
+            self.low_cmd.motor_cmd[i].mode = self.mode[i]
+            self.low_cmd.motor_cmd[i].q = self.q[i]
+            self.low_cmd.motor_cmd[i].dq = self.dq[i]
+            self.low_cmd.motor_cmd[i].tau = self.tau[i]
+            self.low_cmd.motor_cmd[i].kp = self.kp[i]
+            self.low_cmd.motor_cmd[i].kd = self.kd[i]
+        # set CRC
         self.low_cmd.crc = self.crc.Crc(self.low_cmd)
         # write to publisher
         self.low_cmd_publisher.Write(self.low_cmd)
+        # print(f'CommandPublisher publish time: {time.time() - start_time:.6f} seconds')
+
+    def enable_motor(self, motor_ids, init_q):
+        motor_ids, init_q = np.array(motor_ids), np.array(init_q)
+        assert len(motor_ids) == len(init_q), 'Motor IDs and initial positions must have the same length.'
+        assert np.all(motor_ids < NUM_MOTOR) and np.all(motor_ids >= 0), f'Motor IDs must be within [0, {NUM_MOTOR}).'
+
+        self.mode[motor_ids] = 1
+        self.q[motor_ids] = init_q
+
+    def start_publisher(self):
+        self.low_cmd_thread.Start()
+
+    def estop(self):
+        self.mode = np.zeros(NUM_MOTOR)

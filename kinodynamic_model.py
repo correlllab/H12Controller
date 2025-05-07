@@ -4,6 +4,8 @@ import pinocchio as pin
 from pinocchio.visualize import MeshcatVisualizer
 from unitree_h1_2_interface import StateSubscriber
 
+from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+
 class KinodynamicModel:
     def __init__(self, filename: str):
         # break file name
@@ -46,11 +48,11 @@ class KinodynamicModel:
         pin.forwardKinematics(self.model, self.data, q)
         pin.updateFramePlacements(self.model, self.data)
 
-    def update_viz(self):
-        self.viz.display()
-
+    def update_viz(self, q=None):
+        self.viz.display(q)
 
 if __name__ == '__main__':
+    ChannelFactoryInitialize(id=0)
     # Example usage
     kinodynamic_model = KinodynamicModel('assets/h1_2/h1_2.urdf')
     # kinodynamic_model = KinodynamicModel('assets/h1_2/h1_2.xml')
