@@ -20,5 +20,6 @@ dependencies:
     # sims
     - pin
     - pin-pink
+    - qpsolvers
     - mujoco
     - mink
