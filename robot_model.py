@@ -1,12 +1,8 @@
 import os
-import numpy as np
-
 import time
+import numpy as np
 import pinocchio as pin
 from pinocchio.visualize import MeshcatVisualizer
-
-import pink
-import qpsolvers
 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
@@ -34,8 +30,8 @@ class RobotModel:
 
         # field variabels tracking joint states
         self._q = np.zeros(self.model.nq)
-        self._dq = np.zeros(self.model.nq)
-        self._tau = np.zeros(self.model.nq)
+        self._dq = np.zeros(self.model.nv)
+        self._tau = np.zeros(self.model.nv)
 
         # initialize with zero joint positions
         pin.forwardKinematics(self.model, self.data, self.q)
@@ -50,7 +46,7 @@ class RobotModel:
         return np.copy(self._dq)
 
     @property
-    def get_tau(self):
+    def tau(self):
         return np.copy(self._tau)
 
     def init_visualizer(self):
@@ -76,12 +72,12 @@ class RobotModel:
         self._tau[0:20] = self.state_subscriber.get_tau[0:20]
         self._tau[32:39] = self.state_subscriber.get_tau[20:27]
 
-    def forward_kinematics(self):
+    def update_kinematics(self):
         # udpate data with the current joint positions
         pin.forwardKinematics(self.model, self.data, self.q)
         pin.updateFramePlacements(self.model, self.data)
 
-    def update_viz(self):
+    def update_visualizer(self):
         self.viz.display()
 
     def get_body_transformation(self, body_name: str):
@@ -114,60 +110,44 @@ class RobotModel:
         transformation = self.data.oMi[joint_id]
         return transformation.rotation
 
+    def get_body_jacobian(self, body_name: str):
+        '''
+        Get the body jacobian in the world frame
+        '''
+        body_id = self.model.getBodyId(body_name)
+        jacobian = pin.computeFrameJacobian(
+            self.model,
+            self.data,
+            self.q,
+            body_id,
+            pin.ReferenceFrame.LOCAL_WORLD_ALIGNED
+        )
+        return jacobian
+
+    def get_joint_jacobian(self, joint_name: str):
+        '''
+        Get the joint jacobian in the local frame of the joint
+        '''
+        joint_id = self.model.getJointId(joint_name)
+        jacobian = pin.computeJointJacobian(
+            self.model,
+            self.data,
+            self.q,
+            joint_id
+        )
+        return jacobian
 
 if __name__ == '__main__':
+    # a simple shadowing program
     ChannelFactoryInitialize(id=0)
     # Example usage
     robot_model = RobotModel('assets/h1_2/h1_2.urdf')
     # robot_model = RobotModel('assets/h1_2/h1_2.xml')
     robot_model.init_visualizer()
-
-    left_ee_task = pink.FrameTask(
-        'left_wrist_yaw_link',
-        position_cost=50.0,
-        orientation_cost=10.0,
-        lm_damping=0.1
-    )
-
-    posture_task = pink.PostureTask(
-        cost=1e-3
-    )
-
-    configuration = pink.Configuration(
-        robot_model.model,
-        robot_model.data,
-        robot_model.q,
-    )
-
-    tasks = [left_ee_task, posture_task]
-    for task in tasks:
-        task.set_target_from_configuration(configuration)
-    left_ee_task.transform_target_to_world.translation = np.array([1, 0.2, 0])
-    # select solver
-    solver = qpsolvers.available_solvers[0]
-    if "osqp" in qpsolvers.available_solvers:
-        solver = "osqp"
-
-    dt = 0.01
-
-    input('Press Enter to start the simulation...')
+    robot_model.init_subscriber()
 
     while True:
-        configuration = pink.Configuration(
-            robot_model.model,
-            robot_model.data,
-            robot_model.q,
-        )
-        # robot_model.sync_subscriber()
-        vel = pink.solve_ik(
-            configuration,
-            tasks,
-            dt,
-            solver=solver
-        )
-        posture_task.set_target_from_configuration(configuration)
-        robot_model._q = robot_model._q + vel * 1e-3
-        robot_model.forward_kinematics()
-        robot_model.update_viz()
-
-        time.sleep(dt)
+        robot_model.sync_subscriber()
+        robot_model.update_kinematics()
+        robot_model.update_visualizer()
+        time.sleep(0.01)
