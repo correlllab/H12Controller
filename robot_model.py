@@ -48,7 +48,7 @@ class RobotModel:
     @property
     def tau(self):
         return np.copy(self._tau)
-    
+
     @property
     def zero_q(self):
         return np.zeros(self.model.nq)
@@ -84,46 +84,31 @@ class RobotModel:
     def update_visualizer(self):
         self.viz.display()
 
-    def get_body_transformation(self, body_name: str):
-        body_id = self.model.getBodyId(body_name)
-        transformation = self.data.oMf[body_id]
+    def get_frame_transformation(self, frame_name: str):
+        frame_id = self.model.getFrameId(frame_name)
+        transformation = self.data.oMf[frame_id]
         return transformation.np
 
-    def get_body_position(self, body_name: str):
-        body_id = self.model.getBodyId(body_name)
-        transformation = self.data.oMf[body_id]
+    def get_frame_position(self, frame_name: str):
+        frame_id = self.model.getFrameId(frame_name)
+        transformation = self.data.oMf[frame_id]
         return transformation.translation
 
-    def get_body_rotation(self, body_name: str):
-        body_id = self.model.getBodyId(body_name)
-        transformation = self.data.oMf[body_id]
+    def get_frame_rotation(self, frame_name: str):
+        frame_id = self.model.getFrameId(frame_name)
+        transformation = self.data.oMf[frame_id]
         return transformation.rotation
 
-    def get_joint_transformation(self, joint_name: str):
-        joint_id = self.model.getJointId(joint_name)
-        transformation = self.data.oMi[joint_id]
-        return transformation.np
-
-    def get_joint_position(self, joint_name: str):
-        joint_id = self.model.getJointId(joint_name)
-        transformation = self.data.oMi[joint_id]
-        return transformation.translation
-
-    def get_joint_rotation(self, joint_name: str):
-        joint_id = self.model.getJointId(joint_name)
-        transformation = self.data.oMi[joint_id]
-        return transformation.rotation
-
-    def get_body_jacobian(self, body_name: str):
+    def get_frame_jacobian(self, frame_name: str):
         '''
-        Get the body jacobian in the world frame
+        Get the frame jacobian in the world frame
         '''
-        body_id = self.model.getBodyId(body_name)
+        frame_id = self.model.getFrameId(frame_name)
         jacobian = pin.computeFrameJacobian(
             self.model,
             self.data,
             self.q,
-            body_id,
+            frame_id,
             pin.ReferenceFrame.LOCAL_WORLD_ALIGNED
         )
         return jacobian

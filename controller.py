@@ -79,49 +79,80 @@ class ArmController:
         if 'osqp' in qpsolvers.available_solvers:
             self.solver = 'osqp'
 
+    '''
+    left end effector properties
+    left_ee_transformation: transformation matrix of the left end effector
+    left_ee_position: position of the left end effector
+    left_ee_rotation: rotation matrix of the left end effector
+    left_ee_rpy: roll, pitch, yaw of the left end effector
+    left_ee_pose: pose of the left end effector (x, y, z, roll, pitch, yaw)
+    '''
     @property
     def left_ee_transformation(self):
-        return self.robot_model.get_body_transformation(self.left_ee_name)
+        return self.robot_model.get_frame_transformation(self.left_ee_name)
 
     @property
     def left_ee_position(self):
-        return self.robot_model.get_body_position(self.left_ee_name)
+        return self.robot_model.get_frame_position(self.left_ee_name)
 
     @property
     def left_ee_rotation(self):
-        return self.robot_model.get_body_rotation(self.left_ee_name)
+        return self.robot_model.get_frame_rotation(self.left_ee_name)
+
+    @property
+    def left_ee_rpy(self):
+        return pin.rpy.matrixToRpy(self.left_ee_rotation)
 
     @property
     def left_ee_pose(self):
-        return np.concatenate((self.left_ee_position, pin.rpy.matrixToRpy(self.left_ee_rotation)))
+        return np.concatenate([self.left_ee_position,
+                               self.left_ee_rpy])
 
+    '''
+    left end effector properties
+    left_ee_transformation: transformation matrix of the left end effector
+    left_ee_position: position of the left end effector
+    left_ee_rotation: rotation matrix of the left end effector
+    left_ee_rpy: roll, pitch, yaw of the left end effector
+    left_ee_pose: pose of the left end effector (x, y, z, roll, pitch, yaw)
+    '''
     @property
     def right_ee_transformation(self):
-        return self.robot_model.get_body_transformation(self.right_ee_name)
+        return self.robot_model.get_frame_transformation(self.right_ee_name)
 
     @property
     def right_ee_position(self):
-        return self.robot_model.get_body_position(self.right_ee_name)
+        return self.robot_model.get_frame_position(self.right_ee_name)
 
     @property
     def right_ee_rotation(self):
-        return self.robot_model.get_body_rotation(self.right_ee_name)
+        return self.robot_model.get_frame_rotation(self.right_ee_name)
+
+    @property
+    def right_ee_rpy(self):
+        return pin.rpy.matrixToRpy(self.right_ee_rotation)
 
     @property
     def right_ee_pose(self):
         return np.concatenate([self.right_ee_position,
-                               pin.rpy.matrixToRpy(self.right_ee_rotation)])
+                               self.right_ee_rpy])
 
+    '''
+    left end effector target properties
+    left_ee_target_transformation: transformation matrix of the left end effector target
+    left_ee_target_position: position of the left end effector target
+    left_ee_target_rotation: rotation matrix of the left end effector target
+    left_ee_target_rpy: roll, pitch, yaw of the left end effector target
+    left_ee_target_pose: pose of the left end effector target (x, y, z, roll, pitch, yaw)
+    '''
     @property
-    def left_ee_target_pose(self):
-        return np.concatenate((self.left_ee_task.transform_target_to_world.translation,
-                               pin.rpy.matrixToRpy(self.left_ee_task.transform_target_to_world.rotation)))
+    def left_ee_target_transformation(self):
+        return self.left_ee_task.transform_target_to_world.np
 
-    @left_ee_target_pose.setter
-    def left_ee_target_pose(self, pose):
-        assert(len(pose) == 6), 'Pose should be a list of 6 elements (x, y, z, roll, pitch, yaw).'
-        self.left_ee_task.transform_target_to_world.translation = np.array(pose[:3])
-        self.left_ee_task.transform_target_to_world.rotation = pin.rpy.rpyToMatrix(np.array(pose[3:]))
+    @left_ee_target_transformation.setter
+    def left_ee_target_transformation(self, transformation):
+        assert(transformation.shape == (4, 4)), 'Transformation should be a 4x4 matrix.'
+        self.left_ee_task.transform_target_to_world.np = transformation
 
     @property
     def left_ee_target_position(self):
@@ -133,15 +164,50 @@ class ArmController:
         self.left_ee_task.transform_target_to_world.translation = np.array(position)
 
     @property
-    def right_ee_targe_pose(self):
-        return np.concatenate((self.right_ee_task.transform_target_to_world.translation,
-                               pin.rpy.matrixToRpy(self.right_ee_task.transform_target_to_world.rotation)))
+    def left_ee_target_rotation(self):
+        return self.left_ee_task.transform_target_to_world.rotation
 
-    @right_ee_targe_pose.setter
-    def right_ee_targe_pose(self, pose):
+    @left_ee_target_rotation.setter
+    def left_ee_target_rotation(self, rotation):
+        assert(rotation.shape == (3, 3)), 'Rotation should be a 3x3 matrix.'
+        self.left_ee_task.transform_target_to_world.rotation = rotation
+
+    @property
+    def left_ee_target_rpy(self):
+        return pin.rpy.matrixToRpy(self.left_ee_target_rotation)
+
+    @left_ee_target_rpy.setter
+    def left_ee_target_rpy(self, rpy):
+        assert(len(rpy) == 3), 'Rpy should be a list of 3 elements (roll, pitch, yaw).'
+        self.left_ee_target_rotation = pin.rpy.rpyToMatrix(np.array(rpy))
+
+    @property
+    def left_ee_target_pose(self):
+        return np.concatenate([self.left_ee_target_position,
+                               self.left_ee_target_rpy])
+
+    @left_ee_target_pose.setter
+    def left_ee_target_pose(self, pose):
         assert(len(pose) == 6), 'Pose should be a list of 6 elements (x, y, z, roll, pitch, yaw).'
-        self.right_ee_task.transform_target_to_world.translation = np.array(pose[:3])
-        self.right_ee_task.transform_target_to_world.rotation = pin.rpy.rpyToMatrix(np.array(pose[3:]))
+        self.left_ee_target_position = pose[:3]
+        self.left_ee_target_rpy = pose[3:]
+
+    '''
+    right end effector target properties
+    right_ee_target_transformation: transformation matrix of the right end effector target
+    right_ee_target_position: position of the right end effector target
+    right_ee_target_rotation: rotation matrix of the right end effector target
+    right_ee_target_rpy: roll, pitch, yaw of the right end effector target
+    right_ee_target_pose: pose of the right end effector target (x, y, z, roll, pitch, yaw)
+    '''
+    @property
+    def right_ee_target_transformation(self):
+        return self.right_ee_task.transform_target_to_world.np
+
+    @right_ee_target_transformation.setter
+    def right_ee_target_transformation(self, transformation):
+        assert(transformation.shape == (4, 4)), 'Transformation should be a 4x4 matrix.'
+        self.right_ee_task.transform_target_to_world.np = transformation
 
     @property
     def right_ee_target_position(self):
@@ -151,6 +217,35 @@ class ArmController:
     def right_ee_target_position(self, position):
         assert(len(position) == 3), 'Position should be a list of 3 elements (x, y, z).'
         self.right_ee_task.transform_target_to_world.translation = np.array(position)
+
+    @property
+    def right_ee_target_rotation(self):
+        return self.right_ee_task.transform_target_to_world.rotation
+
+    @right_ee_target_rotation.setter
+    def right_ee_target_rotation(self, rotation):
+        assert(rotation.shape == (3, 3)), 'Rotation should be a 3x3 matrix.'
+        self.right_ee_task.transform_target_to_world.rotation = rotation
+
+    @property
+    def right_ee_target_rpy(self):
+        return pin.rpy.matrixToRpy(self.right_ee_target_rotation)
+
+    @right_ee_target_rpy.setter
+    def right_ee_target_rpy(self, rpy):
+        assert(len(rpy) == 3), 'Rpy should be a list of 3 elements (roll, pitch, yaw).'
+        self.right_ee_target_rotation = pin.rpy.rpyToMatrix(np.array(rpy))
+
+    @property
+    def right_ee_target_pose(self):
+        return np.concatenate([self.right_ee_target_position,
+                               self.right_ee_target_rpy])
+
+    @right_ee_target_pose.setter
+    def right_ee_target_pose(self, pose):
+        assert(len(pose) == 6), 'Pose should be a list of 6 elements (x, y, z, roll, pitch, yaw).'
+        self.right_ee_target_position = pose[:3]
+        self.right_ee_target_rpy = pose[3:]
 
     def control_loop(self):
         # sync robot model and compute forward kinematics
@@ -196,33 +291,107 @@ if __name__ == '__main__':
 
     root = tk.Tk()
     root.title('Arm Controller')
-    root.geometry('300x200')
+    root.geometry('600x400')
 
-    slider_x = tk.Scale(root, label="X",
-                    from_=-1.0, to=1.0, resolution=0.01,
-                    orient=tk.HORIZONTAL, length=250)
-    slider_y = tk.Scale(root, label="Y",
-                        from_=-1.0, to=1.0, resolution=0.01,
-                        orient=tk.HORIZONTAL, length=250)
-    slider_z = tk.Scale(root, label="Z",
-                        from_=-1.0, to=1.0, resolution=0.01,
-                        orient=tk.HORIZONTAL, length=250)
-    slider_x.pack(pady=5)
-    slider_y.pack(pady=5)
-    slider_z.pack(pady=5)
+    # pack sliders side by side
+    left_frame = tk.Frame(root)
+    right_frame = tk.Frame(root)  # Commented out for now
+    left_frame.pack(side=tk.LEFT, padx=10, pady=10)
+    right_frame.pack(side=tk.RIGHT, padx=10, pady=10)  # Commented out for now
 
+    # left hand sliders
+    slider_lx = tk.Scale(left_frame, label="Left X",
+                         from_=-1.0, to=1.0, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_ly = tk.Scale(left_frame, label="Left Y",
+                         from_=-1.0, to=1.0, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_lz = tk.Scale(left_frame, label="Left Z",
+                         from_=-1.0, to=1.0, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_lr = tk.Scale(left_frame, label="Left Roll",
+                         from_=-np.pi, to=np.pi, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_lp = tk.Scale(left_frame, label="Left Pitch",
+                         from_=-np.pi, to=np.pi, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_lyaw = tk.Scale(left_frame, label="Left Yaw",
+                           from_=-np.pi, to=np.pi, resolution=0.01,
+                           orient=tk.HORIZONTAL, length=250)
+    slider_lx.pack(in_=left_frame, pady=5)
+    slider_ly.pack(in_=left_frame, pady=5)
+    slider_lz.pack(in_=left_frame, pady=5)
+    slider_lr.pack(in_=left_frame, pady=5)
+    slider_lp.pack(in_=left_frame, pady=5)
+    slider_lyaw.pack(in_=left_frame, pady=5)
+
+    # right hand sliders
+    slider_rx = tk.Scale(right_frame, label="Right X",
+                         from_=-1.0, to=1.0, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_ry = tk.Scale(right_frame, label="Right Y",
+                         from_=-1.0, to=1.0, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_rz = tk.Scale(right_frame, label="Right Z",
+                         from_=-1.0, to=1.0, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_rr = tk.Scale(right_frame, label="Right Roll",
+                         from_=-np.pi, to=np.pi, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_rp = tk.Scale(right_frame, label="Right Pitch",
+                         from_=-np.pi, to=np.pi, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_ryaw = tk.Scale(right_frame, label="Right Yaw",
+                           from_=-np.pi, to=np.pi, resolution=0.01,
+                           orient=tk.HORIZONTAL, length=250)
+    slider_rx.pack(in_=right_frame, pady=5)
+    slider_ry.pack(in_=right_frame, pady=5)
+    slider_rz.pack(in_=right_frame, pady=5)
+    slider_rr.pack(in_=right_frame, pady=5)
+    slider_rp.pack(in_=right_frame, pady=5)
+    slider_ryaw.pack(in_=right_frame, pady=5)
+
+    # left hand target initialization
     left_ee_position = arm_controller.left_ee_target_pose[:3]
-    slider_x.set(left_ee_position[0])
-    slider_y.set(left_ee_position[1])
-    slider_z.set(left_ee_position[2])
+    slider_lx.set(left_ee_position[0])
+    slider_ly.set(left_ee_position[1])
+    slider_lz.set(left_ee_position[2])
+    left_ee_rpy = arm_controller.left_ee_target_rpy
+    slider_lr.set(left_ee_rpy[0])
+    slider_lp.set(left_ee_rpy[1])
+    slider_lyaw.set(left_ee_rpy[2])
+
+    # Right hand target initialization
+    right_ee_position = arm_controller.right_ee_target_pose[:3]
+    slider_rx.set(right_ee_position[0])
+    slider_ry.set(right_ee_position[1])
+    slider_rz.set(right_ee_position[2])
+    right_ee_rpy = arm_controller.right_ee_target_rpy
+    slider_rr.set(right_ee_rpy[0])
+    slider_rp.set(right_ee_rpy[1])
+    slider_ryaw.set(right_ee_rpy[2])
 
     root.update()
 
     while True:
         root.update()
-        x = slider_x.get()
-        y = slider_y.get()
-        z = slider_z.get()
-        arm_controller.left_ee_target_position = [x, y, z]
+        # update left hand target
+        lx = slider_lx.get()
+        ly = slider_ly.get()
+        lz = slider_lz.get()
+        lr = slider_lr.get()
+        lp = slider_lp.get()
+        lyaw = slider_lyaw.get()
+        arm_controller.left_ee_target_pose = [lx, ly, lz, lr, lp, lyaw]
+
+        # update right hand target
+        rx = slider_rx.get()
+        ry = slider_ry.get()
+        rz = slider_rz.get()
+        rr = slider_rr.get()
+        rp = slider_rp.get()
+        ryaw = slider_ryaw.get()
+        arm_controller.right_ee_target_pose = [rx, ry, rz, rr, rp, ryaw]
+
         arm_controller.control_loop()
         time.sleep(arm_controller.dt)
