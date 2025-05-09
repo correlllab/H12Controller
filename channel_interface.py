@@ -105,4 +105,4 @@ class CommandPublisher:
         self.low_cmd_thread.Start()
 
     def estop(self):
-        self.mode = np.zeros(NUM_MOTOR)
+        self.mode = np.zeros(NUM_MOTOR, dtype=np.int32)

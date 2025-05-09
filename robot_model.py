@@ -48,6 +48,10 @@ class RobotModel:
     @property
     def tau(self):
         return np.copy(self._tau)
+    
+    @property
+    def zero_q(self):
+        return np.zeros(self.model.nq)
 
     def init_visualizer(self):
         try:
