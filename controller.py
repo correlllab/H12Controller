@@ -69,17 +69,43 @@ class ArmController:
             cost=1e-3
         )
 
+        # self.collision_data = pink.utils.process_collision_pairs(
+        #     self.robot_model.model,
+        #     self.robot_model.collision_model,
+        #     './assets/h1_2/h1_2_collision.srdf'
+        # )
+
         # configuration trakcing robot states
         self.configuration = pink.Configuration(
             self.robot_model.model,
             self.robot_model.data,
             self.robot_model.zero_q,
+            # collision_model=self.robot_model.collision_model,
+            # collision_data=self.collision_data,
+        )
+
+        # # collision barriers
+        # self.collision_barrier = pink.barriers.SelfCollisionBarrier(
+        #     n_collision_pairs=len(self.robot_model.collision_model.collisionPairs),
+        #     gain=20.0,
+        #     safe_displacement_gain=1.0,
+        #     d_min=0.05,
+        # )
+
+        # spherical collision barriers
+        self.ee_barrier = pink.barriers.BodySphericalBarrier(
+            ('left_wrist_yaw_link', 'right_wrist_yaw_link'),
+            d_min=0.2,
+            gain = 100.0,
+            safe_displacement_gain=1.0
         )
 
         # set initial target for all tasks
         self.tasks = [self.left_ee_task, self.right_ee_task, self.posture_task]
         for task in self.tasks:
             task.set_target_from_configuration(self.configuration)
+        # set collision barrier
+        self.barriers = [self.ee_barrier]
         # select solver
         self.solver = qpsolvers.available_solvers[0]
         if 'osqp' in qpsolvers.available_solvers:
@@ -271,11 +297,12 @@ class ArmController:
             self.tasks,
             dt=self.dt,
             solver=self.solver,
+            barriers=self.barriers,
             safety_break=False
         )
 
-        # # set velocity at non-moving joints to zero
-        vel[0:13] = 0.0
+        # set velocity at non-moving joints to zero
+        vel[0:12] = 0.0
         vel[20:32] = 0.0
         vel[39:] = 0.0
 
@@ -288,10 +315,38 @@ class ArmController:
                        np.zeros(self.robot_model.model.nv))
 
         # send the velocity command to the robot
-        self.command_publisher.q[13:20] = self.robot_model.q[13:20] + vel[13:20] * scaler
+        self.command_publisher.q[12:20] = self.robot_model.q[12:20] + vel[12:20] * scaler
         self.command_publisher.q[20:27] = self.robot_model.q[32:39] + vel[32:39] * scaler
-        self.command_publisher.tau[13:20] = tau[13:20]
+        self.command_publisher.tau[12:20] = tau[12:20]
         self.command_publisher.tau[20:27] = tau[32:39]
+
+    def sim_loop(self):
+        # update visualizer if needed
+        if self.visualize:
+            self.robot_model.update_visualizer()
+
+        # update configuration and posture task
+        self.configuration.update(self.robot_model.q)
+        self.posture_task.set_target_from_configuration(self.configuration)
+
+        # solve IK
+        vel = pink.solve_ik(
+            self.configuration,
+            self.tasks,
+            dt=self.dt,
+            solver=self.solver,
+            barriers=self.barriers,
+            safety_break=False
+        )
+
+        # set velocity at non-moving joints to zero
+        vel[0:12] = 0.0
+        vel[20:32] = 0.0
+        vel[39:] = 0.0
+
+        scaler = 3e-3
+        self.robot_model._q = self.robot_model.q + vel * scaler
+        self.robot_model.update_kinematics()
 
     def estop(self):
         self.command_publisher.estop()
@@ -405,4 +460,5 @@ if __name__ == '__main__':
         arm_controller.right_ee_target_pose = [rx, ry, rz, rr, rp, ryaw]
 
         arm_controller.control_loop()
+        # arm_controller.sim_loop()
         time.sleep(arm_controller.dt)
