@@ -36,8 +36,14 @@ class ArmController:
         # enable upper body motors and set initial q & gain
         motor_ids = np.array([i for i in range(13, 27)])
         init_q = self.robot_model.q[np.array([i for i in range(13, 20)] + [i for i in range(32, 39)])]
-        self.command_publisher.kp[13:27] = 150
-        self.command_publisher.kd[13:27] = 3
+        # gain for arms
+        self.command_publisher.kp[13:27] = 140.0
+        self.command_publisher.kd[13:27] = 3.0
+        # lower gain for wrist
+        self.command_publisher.kp[18:20] = 50.0
+        self.command_publisher.kd[18:20] = 2.0
+        self.command_publisher.kp[25:27] = 50.0
+        self.command_publisher.kd[25:27] = 2.0
         self.command_publisher.enable_motor(motor_ids, init_q)
         self.command_publisher.start_publisher()
 
@@ -268,12 +274,17 @@ class ArmController:
             safety_break=False
         )
 
+        # # set velocity at non-moving joints to zero
+        vel[0:13] = 0.0
+        vel[20:32] = 0.0
+        vel[39:] = 0.0
+
         # solve dynamics
         scaler = 3e-3
         tau = pin.rnea(self.robot_model.model,
                        self.robot_model.data,
                        self.robot_model.q + vel * scaler,
-                       vel * scaler,
+                       np.zeros(self.robot_model.model.nv),
                        np.zeros(self.robot_model.model.nv))
 
         # send the velocity command to the robot
