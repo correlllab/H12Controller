@@ -3,6 +3,7 @@ import pinocchio as pin
 # load model
 model, _, _ = pin.buildModelsFromUrdf(filename='./assets/h1_2/h1_2.urdf',
                                       package_dirs='./assets/h1_2')
+# model, _, _ = pin.buildModelsFromUrdf(filename='./assets/h1_2/h1_2_sphere.urdf')
 # model, _, _ = pin.buildModelsFromMJCF('./assets/h1_2/h1_2.xml')
 data  = model.createData()
 

@@ -130,7 +130,8 @@ if __name__ == '__main__':
     # a simple shadowing program
     ChannelFactoryInitialize(id=0)
     # Example usage
-    robot_model = RobotModel('assets/h1_2/h1_2.urdf')
+    robot_model = RobotModel('assets/h1_2/h1_2_sphere.urdf')
+    # robot_model = RobotModel('assets/h1_2/h1_2.urdf')
     # robot_model = RobotModel('assets/h1_2/h1_2.xml')
     robot_model.init_visualizer()
     robot_model.init_subscriber()
