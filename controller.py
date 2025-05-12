@@ -34,8 +34,8 @@ class ArmController:
         # initialize command publisher
         self.command_publisher = CommandPublisher()
         # enable upper body motors and set initial q & gain
-        motor_ids = np.array([i for i in range(13, 27)])
-        init_q = self.robot_model.q[np.array([i for i in range(13, 20)] + [i for i in range(32, 39)])]
+        motor_ids = np.array([i for i in range(12, 27)])
+        init_q = self.robot_model.q[np.array([i for i in range(12, 20)] + [i for i in range(32, 39)])]
         # gain for arms
         self.command_publisher.kp[13:27] = 140.0
         self.command_publisher.kd[13:27] = 3.0
@@ -44,6 +44,9 @@ class ArmController:
         self.command_publisher.kd[18:20] = 2.0
         self.command_publisher.kp[25:27] = 50.0
         self.command_publisher.kd[25:27] = 2.0
+        # low gain for torso
+        self.command_publisher.kp[12] = 50.0
+        self.command_publisher.kd[12] = 2.0
         self.command_publisher.enable_motor(motor_ids, init_q)
         self.command_publisher.start_publisher()
 
@@ -69,11 +72,11 @@ class ArmController:
             cost=1e-3
         )
 
-        # self.collision_data = pink.utils.process_collision_pairs(
-        #     self.robot_model.model,
-        #     self.robot_model.collision_model,
-        #     './assets/h1_2/h1_2_collision.srdf'
-        # )
+        self.collision_data = pink.utils.process_collision_pairs(
+            self.robot_model.model,
+            self.robot_model.collision_model,
+            './assets/h1_2/h1_2_collision.srdf'
+        )
 
         # configuration trakcing robot states
         self.configuration = pink.Configuration(
@@ -84,13 +87,13 @@ class ArmController:
             # collision_data=self.collision_data,
         )
 
-        # # collision barriers
-        # self.collision_barrier = pink.barriers.SelfCollisionBarrier(
-        #     n_collision_pairs=len(self.robot_model.collision_model.collisionPairs),
-        #     gain=20.0,
-        #     safe_displacement_gain=1.0,
-        #     d_min=0.05,
-        # )
+        # collision barriers
+        self.collision_barrier = pink.barriers.SelfCollisionBarrier(
+            n_collision_pairs=len(self.robot_model.collision_model.collisionPairs),
+            gain=20.0,
+            safe_displacement_gain=1.0,
+            d_min=0.05,
+        )
 
         # spherical collision barriers
         self.ee_barrier = pink.barriers.BodySphericalBarrier(
@@ -105,7 +108,9 @@ class ArmController:
         for task in self.tasks:
             task.set_target_from_configuration(self.configuration)
         # set collision barrier
+        # self.barriers = []
         self.barriers = [self.ee_barrier]
+        # self.barriers = [self.collision_barrier]
         # select solver
         self.solver = qpsolvers.available_solvers[0]
         if 'osqp' in qpsolvers.available_solvers:
@@ -280,6 +285,7 @@ class ArmController:
         self.right_ee_target_rpy = pose[3:]
 
     def control_loop(self):
+        t = time.time()
         # sync robot model and compute forward kinematics
         self.robot_model.sync_subscriber()
         self.robot_model.update_kinematics()
@@ -307,11 +313,11 @@ class ArmController:
         vel[39:] = 0.0
 
         # solve dynamics
-        scaler = 3e-3
+        scaler = 0.3 * self.dt
         tau = pin.rnea(self.robot_model.model,
                        self.robot_model.data,
                        self.robot_model.q + vel * scaler,
-                       np.zeros(self.robot_model.model.nv),
+                       vel * scaler,
                        np.zeros(self.robot_model.model.nv))
 
         # send the velocity command to the robot
@@ -319,6 +325,8 @@ class ArmController:
         self.command_publisher.q[20:27] = self.robot_model.q[32:39] + vel[32:39] * scaler
         self.command_publisher.tau[12:20] = tau[12:20]
         self.command_publisher.tau[20:27] = tau[32:39]
+
+        print(f'Time: {time.time() - t:.4f}s')
 
     def sim_loop(self):
         # update visualizer if needed
