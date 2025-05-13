@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<robot name="h1_5">
+<robot name="h1_2_sphere">
 
   <mujoco>
     <compiler meshdir="meshes" discardvisual="false" />

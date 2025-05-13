@@ -72,10 +72,17 @@ class ArmController:
             cost=1e-3
         )
 
+        # self.sphere_model, _, self.collision_model = pin.buildModelsFromUrdf('assets/h1_2/h1_2_sphere.urdf')
+        # self.collision_data = pink.utils.process_collision_pairs(
+        #     self.sphere_model,
+        #     self.collision_model,
+        #     'assets/h1_2/h1_2_sphere_collision.srdf',
+        # )
+        self.collision_model = self.robot_model.collision_model
         self.collision_data = pink.utils.process_collision_pairs(
             self.robot_model.model,
             self.robot_model.collision_model,
-            './assets/h1_2/h1_2_collision.srdf'
+            'assets/h1_2/h1_2_collision.srdf',
         )
 
         # configuration trakcing robot states
@@ -83,13 +90,13 @@ class ArmController:
             self.robot_model.model,
             self.robot_model.data,
             self.robot_model.zero_q,
-            # collision_model=self.robot_model.collision_model,
+            # collision_model=self.collision_model,
             # collision_data=self.collision_data,
         )
 
         # collision barriers
         self.collision_barrier = pink.barriers.SelfCollisionBarrier(
-            n_collision_pairs=len(self.robot_model.collision_model.collisionPairs),
+            n_collision_pairs=len(self.collision_model.collisionPairs),
             gain=20.0,
             safe_displacement_gain=1.0,
             d_min=0.05,
@@ -108,8 +115,8 @@ class ArmController:
         for task in self.tasks:
             task.set_target_from_configuration(self.configuration)
         # set collision barrier
-        # self.barriers = []
-        self.barriers = [self.ee_barrier]
+        self.barriers = []
+        # self.barriers = [self.ee_barrier]
         # self.barriers = [self.collision_barrier]
         # select solver
         self.solver = qpsolvers.available_solvers[0]
@@ -329,6 +336,7 @@ class ArmController:
         print(f'Time: {time.time() - t:.4f}s')
 
     def sim_loop(self):
+        t = time.time()
         # update visualizer if needed
         if self.visualize:
             self.robot_model.update_visualizer()
@@ -355,6 +363,8 @@ class ArmController:
         scaler = 3e-3
         self.robot_model._q = self.robot_model.q + vel * scaler
         self.robot_model.update_kinematics()
+
+        print(f'Time: {time.time() - t:.4f}s')
 
     def estop(self):
         self.command_publisher.estop()
