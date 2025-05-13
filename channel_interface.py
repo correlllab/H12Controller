@@ -45,7 +45,7 @@ class StateSubscriber:
         return np.copy(self._dq)
 
     @property
-    def get_tau(self):
+    def tau(self):
         return np.copy(self._tau)
 
 class CommandPublisher:

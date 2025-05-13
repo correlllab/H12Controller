@@ -73,12 +73,12 @@ class RobotModel:
         self._q[32:39] = self.state_subscriber.q[20:27]
         self._dq[0:20] = self.state_subscriber.dq[0:20]
         self._dq[32:39] = self.state_subscriber.dq[20:27]
-        self._tau[0:20] = self.state_subscriber.get_tau[0:20]
-        self._tau[32:39] = self.state_subscriber.get_tau[20:27]
+        self._tau[0:20] = self.state_subscriber.tau[0:20]
+        self._tau[32:39] = self.state_subscriber.tau[20:27]
 
     def update_kinematics(self):
         # udpate data with the current joint positions
-        pin.forwardKinematics(self.model, self.data, self.q)
+        pin.forwardKinematics(self.model, self.data, self.q, self.dq)
         pin.updateFramePlacements(self.model, self.data)
 
     def update_visualizer(self):
@@ -126,12 +126,37 @@ class RobotModel:
         )
         return jacobian
 
+    def get_frame_velocity(self, frame_name: str):
+        frame_id = self.model.getFrameId(frame_name)
+        velocity = pin.getFrameVelocity(
+            self.model,
+            self.data,
+            frame_id,
+            pin.ReferenceFrame.LOCAL_WORLD_ALIGNED
+        )
+        return velocity
+
+    def compute_frame_twist(self, frame_name: str, dq: np.ndarray):
+        jac = self.get_frame_jacobian(frame_name)
+        velocity = jac @ dq
+        return velocity
+
+    def get_frame_wrench(self, frame_name: str):
+        jac = self.get_frame_jacobian(frame_name)
+        tau_gravity = pin.rnea(self.model,
+                               self.data,
+                               self.q,
+                               self.dq,
+                               np.zeros(self.model.nv))
+        wrench = np.linalg.inv(jac @ jac.T) @ jac @ (self.tau - tau_gravity)
+        return wrench
+
 if __name__ == '__main__':
     # a simple shadowing program
     ChannelFactoryInitialize(id=0)
     # Example usage
-    robot_model = RobotModel('assets/h1_2/h1_2_sphere.urdf')
-    # robot_model = RobotModel('assets/h1_2/h1_2.urdf')
+    # robot_model = RobotModel('assets/h1_2/h1_2_sphere.urdf')
+    robot_model = RobotModel('assets/h1_2/h1_2.urdf')
     # robot_model = RobotModel('assets/h1_2/h1_2.xml')
     robot_model.init_visualizer()
     robot_model.init_subscriber()
@@ -140,4 +165,8 @@ if __name__ == '__main__':
         robot_model.sync_subscriber()
         robot_model.update_kinematics()
         robot_model.update_visualizer()
+        print('=======')
+        print(f'Pinocchio fk velocity: {robot_model.get_frame_velocity('left_wrist_yaw_link')}')
+        print(f'Jacobian velocity: {robot_model.compute_frame_twist('left_wrist_yaw_link', robot_model.dq)}')
+        print('=======')
         time.sleep(0.01)
