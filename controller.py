@@ -319,6 +319,13 @@ class ArmController:
         vel[20:32] = 0.0
         vel[39:] = 0.0
 
+        # compute end effector velocity
+        v_left = self.robot_model.compute_frame_twist(self.left_ee_name, vel)[0:3]
+        v_right = self.robot_model.compute_frame_twist(self.right_ee_name, vel)[0:3]
+
+        print(f'Left end effector velocity: {v_left}')
+        print(f'Right end effector velocity: {v_right}')
+
         # solve dynamics
         scaler = 0.3 * self.dt
         tau = pin.rnea(self.robot_model.model,
@@ -360,7 +367,14 @@ class ArmController:
         vel[20:32] = 0.0
         vel[39:] = 0.0
 
-        scaler = 3e-3
+        # compute end effector velocity
+        v_left = self.robot_model.compute_frame_twist(self.left_ee_name, vel)[0:3]
+        v_right = self.robot_model.compute_frame_twist(self.right_ee_name, vel)[0:3]
+
+        print(f'Left end effector velocity: {v_left}')
+        print(f'Right end effector velocity: {v_right}')
+
+        scaler = 0.3 * self.dt
         self.robot_model._q = self.robot_model.q + vel * scaler
         self.robot_model.update_kinematics()
 
@@ -477,6 +491,6 @@ if __name__ == '__main__':
         ryaw = slider_ryaw.get()
         arm_controller.right_ee_target_pose = [rx, ry, rz, rr, rp, ryaw]
 
-        arm_controller.control_loop()
-        # arm_controller.sim_loop()
+        # arm_controller.control_loop()
+        arm_controller.sim_loop()
         time.sleep(arm_controller.dt)
