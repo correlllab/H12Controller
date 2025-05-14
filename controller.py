@@ -13,10 +13,11 @@ from robot_model import RobotModel
 from channel_interface import CommandPublisher
 
 class ArmController:
-    def __init__(self, filename, dt, visualize=False):
+    def __init__(self, filename, dt=0.01, vlim=1.0, visualize=False):
         # initialize robot model
         self.robot_model = RobotModel(filename)
         self.dt = dt
+        self.vlim = vlim
         self.visualize = visualize
 
         if self.visualize:
@@ -37,15 +38,22 @@ class ArmController:
         motor_ids = np.array([i for i in range(12, 27)])
         init_q = self.robot_model.q[np.array([i for i in range(12, 20)] + [i for i in range(32, 39)])]
         # gain for arms
-        self.command_publisher.kp[13:27] = 140.0
-        self.command_publisher.kd[13:27] = 3.0
-        # lower gain for wrist
+        self.command_publisher.kp[13:16] = 180.0
+        self.command_publisher.kd[13:16] = 3.0
+        self.command_publisher.kp[20:23] = 180.0
+        self.command_publisher.kd[20:23] = 3.0
+        # gain for elbow
+        self.command_publisher.kp[16:18] = 180.0
+        self.command_publisher.kd[16:18] = 2.0
+        self.command_publisher.kp[23:25] = 180.0
+        self.command_publisher.kd[23:25] = 2.0
+        # gain for wrist
         self.command_publisher.kp[18:20] = 50.0
         self.command_publisher.kd[18:20] = 2.0
         self.command_publisher.kp[25:27] = 50.0
         self.command_publisher.kd[25:27] = 2.0
-        # low gain for torso
-        self.command_publisher.kp[12] = 50.0
+        # gain for torso
+        self.command_publisher.kp[12] = 100.0
         self.command_publisher.kd[12] = 2.0
         self.command_publisher.enable_motor(motor_ids, init_q)
         self.command_publisher.start_publisher()
@@ -57,7 +65,7 @@ class ArmController:
             self.left_ee_name,
             position_cost=100.0,
             orientation_cost=30.0,
-            lm_damping=0.1
+            lm_damping=1.0
         )
         # right arm end effector task
         self.right_ee_name = 'right_wrist_yaw_link'
@@ -65,7 +73,7 @@ class ArmController:
             self.right_ee_name,
             position_cost=100.0,
             orientation_cost=30.0,
-            lm_damping=0.1
+            lm_damping=1.0
         )
         # posture task as regularization
         self.posture_task = pink.PostureTask(
@@ -322,21 +330,22 @@ class ArmController:
         # compute end effector velocity
         v_left = self.robot_model.compute_frame_twist(self.left_ee_name, vel)[0:3]
         v_right = self.robot_model.compute_frame_twist(self.right_ee_name, vel)[0:3]
-
-        print(f'Left end effector velocity: {v_left}')
-        print(f'Right end effector velocity: {v_right}')
+        # limit end effector velocity
+        scaler = np.min([1.0,
+                         self.vlim / (np.linalg.norm(v_left) + 1e-3),
+                         self.vlim / (np.linalg.norm(v_right) + 1e-3)])
+        scaler = 0.3
 
         # solve dynamics
-        scaler = 0.3 * self.dt
         tau = pin.rnea(self.robot_model.model,
                        self.robot_model.data,
-                       self.robot_model.q + vel * scaler,
-                       vel * scaler,
+                       self.robot_model.q + scaler * vel * self.dt,
+                       np.zeros(self.robot_model.model.nv),
                        np.zeros(self.robot_model.model.nv))
 
         # send the velocity command to the robot
-        self.command_publisher.q[12:20] = self.robot_model.q[12:20] + vel[12:20] * scaler
-        self.command_publisher.q[20:27] = self.robot_model.q[32:39] + vel[32:39] * scaler
+        self.command_publisher.q[12:20] = self.robot_model.q[12:20] + scaler * vel[12:20] * self.dt
+        self.command_publisher.q[20:27] = self.robot_model.q[32:39] + scaler * vel[32:39] * self.dt
         self.command_publisher.tau[12:20] = tau[12:20]
         self.command_publisher.tau[20:27] = tau[32:39]
 
@@ -370,12 +379,13 @@ class ArmController:
         # compute end effector velocity
         v_left = self.robot_model.compute_frame_twist(self.left_ee_name, vel)[0:3]
         v_right = self.robot_model.compute_frame_twist(self.right_ee_name, vel)[0:3]
+        # limit end effector velocity
+        scaler = np.min([1.0,
+                         self.vlim / (np.linalg.norm(v_left) + 1e-3),
+                         self.vlim / (np.linalg.norm(v_right) + 1e-3)])
 
-        print(f'Left end effector velocity: {v_left}')
-        print(f'Right end effector velocity: {v_right}')
-
-        scaler = 0.3 * self.dt
-        self.robot_model._q = self.robot_model.q + vel * scaler
+        # apply control
+        self.robot_model._q = self.robot_model.q + scaler * vel * self.dt
         self.robot_model.update_kinematics()
 
         print(f'Time: {time.time() - t:.4f}s')
@@ -385,7 +395,10 @@ class ArmController:
 
 if __name__ == '__main__':
     # Example usage
-    arm_controller = ArmController('assets/h1_2/h1_2.urdf', dt=0.01, visualize=True)
+    arm_controller = ArmController('assets/h1_2/h1_2.urdf',
+                                   dt=0.01,
+                                   vlim=2.0,
+                                   visualize=True)
 
     root = tk.Tk()
     root.title('Arm Controller')
@@ -491,6 +504,6 @@ if __name__ == '__main__':
         ryaw = slider_ryaw.get()
         arm_controller.right_ee_target_pose = [rx, ry, rz, rr, rp, ryaw]
 
-        # arm_controller.control_loop()
-        arm_controller.sim_loop()
+        arm_controller.control_loop()
+        # arm_controller.sim_loop()
         time.sleep(arm_controller.dt)

@@ -126,20 +126,20 @@ class RobotModel:
         )
         return jacobian
 
-    def get_frame_velocity(self, frame_name: str):
+    def get_frame_twist(self, frame_name: str):
         frame_id = self.model.getFrameId(frame_name)
-        velocity = pin.getFrameVelocity(
+        twist = pin.getFrameVelocity(
             self.model,
             self.data,
             frame_id,
             pin.ReferenceFrame.LOCAL_WORLD_ALIGNED
         )
-        return velocity
+        return np.concatenate([twist.linear, twist.angular])
 
     def compute_frame_twist(self, frame_name: str, dq: np.ndarray):
         jac = self.get_frame_jacobian(frame_name)
-        velocity = jac @ dq
-        return velocity
+        twist = jac @ dq
+        return twist
 
     def get_frame_wrench(self, frame_name: str):
         jac = self.get_frame_jacobian(frame_name)
@@ -165,8 +165,5 @@ if __name__ == '__main__':
         robot_model.sync_subscriber()
         robot_model.update_kinematics()
         robot_model.update_visualizer()
-        print('=======')
-        print(f'Pinocchio fk velocity: {robot_model.get_frame_velocity("left_wrist_yaw_link")}')
-        print(f'Jacobian velocity: {robot_model.compute_frame_twist("left_wrist_yaw_link", robot_model.dq)}')
-        print('=======')
         time.sleep(0.01)
+        print(f'frame twist {robot_model.get_frame_twist("left_wrist_yaw_link")}')
