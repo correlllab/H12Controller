@@ -43,10 +43,10 @@ class ArmController:
         self.command_publisher.kp[20:23] = 180.0
         self.command_publisher.kd[20:23] = 3.0
         # gain for elbow
-        self.command_publisher.kp[16:18] = 180.0
-        self.command_publisher.kd[16:18] = 2.0
-        self.command_publisher.kp[23:25] = 180.0
-        self.command_publisher.kd[23:25] = 2.0
+        self.command_publisher.kp[16:18] = 150.0
+        self.command_publisher.kd[16:18] = 3.0
+        self.command_publisher.kp[23:25] = 150.0
+        self.command_publisher.kd[23:25] = 3.0
         # gain for wrist
         self.command_publisher.kp[18:20] = 50.0
         self.command_publisher.kd[18:20] = 2.0
@@ -63,7 +63,7 @@ class ArmController:
         self.left_ee_name = 'left_wrist_yaw_link'
         self.left_ee_task = pink.FrameTask(
             self.left_ee_name,
-            position_cost=100.0,
+            position_cost=50.0,
             orientation_cost=30.0,
             lm_damping=1.0
         )
@@ -71,7 +71,7 @@ class ArmController:
         self.right_ee_name = 'right_wrist_yaw_link'
         self.right_ee_task = pink.FrameTask(
             self.right_ee_name,
-            position_cost=100.0,
+            position_cost=50.0,
             orientation_cost=30.0,
             lm_damping=1.0
         )
@@ -331,21 +331,22 @@ class ArmController:
         v_left = self.robot_model.compute_frame_twist(self.left_ee_name, vel)[0:3]
         v_right = self.robot_model.compute_frame_twist(self.right_ee_name, vel)[0:3]
         # limit end effector velocity
-        scaler = np.min([1.0,
+        scaler = np.min([0.3,
                          self.vlim / (np.linalg.norm(v_left) + 1e-3),
                          self.vlim / (np.linalg.norm(v_right) + 1e-3)])
-        scaler = 0.3
 
         # solve dynamics
         tau = pin.rnea(self.robot_model.model,
                        self.robot_model.data,
                        self.robot_model.q + scaler * vel * self.dt,
-                       np.zeros(self.robot_model.model.nv),
+                       self.robot_model.dq,
                        np.zeros(self.robot_model.model.nv))
 
         # send the velocity command to the robot
         self.command_publisher.q[12:20] = self.robot_model.q[12:20] + scaler * vel[12:20] * self.dt
         self.command_publisher.q[20:27] = self.robot_model.q[32:39] + scaler * vel[32:39] * self.dt
+        self.command_publisher.dq[12:20] = scaler * vel[12:20]
+        self.command_publisher.dq[20:27] = scaler * vel[32:39]
         self.command_publisher.tau[12:20] = tau[12:20]
         self.command_publisher.tau[20:27] = tau[32:39]
 
@@ -380,7 +381,7 @@ class ArmController:
         v_left = self.robot_model.compute_frame_twist(self.left_ee_name, vel)[0:3]
         v_right = self.robot_model.compute_frame_twist(self.right_ee_name, vel)[0:3]
         # limit end effector velocity
-        scaler = np.min([1.0,
+        scaler = np.min([0.3,
                          self.vlim / (np.linalg.norm(v_left) + 1e-3),
                          self.vlim / (np.linalg.norm(v_right) + 1e-3)])
 
@@ -394,10 +395,10 @@ class ArmController:
         self.command_publisher.estop()
 
 if __name__ == '__main__':
-    # Example usage
+    # example usage
     arm_controller = ArmController('assets/h1_2/h1_2.urdf',
                                    dt=0.01,
-                                   vlim=2.0,
+                                   vlim=1.0,
                                    visualize=True)
 
     root = tk.Tk()

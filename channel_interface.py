@@ -31,6 +31,7 @@ class StateSubscriber:
         self.low_state_subscriber.Init(self.subscribe_low_state, 10)
 
     def subscribe_low_state(self, msg: LowState_):
+        self.last_time = time.time()
         for i in range(NUM_MOTOR):
             self._q[i] = msg.motor_state[i].q
             self._dq[i] = msg.motor_state[i].dq
@@ -70,7 +71,7 @@ class CommandPublisher:
 
         # start publisher thread
         self.low_cmd_thread = RecurrentThread(
-            interval=0.01,
+            interval=0.005,
             target=self.publish_low_cmd,
             name='low_cmd_thread'
         )
