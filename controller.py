@@ -299,7 +299,7 @@ class ArmController:
         self.right_ee_target_position = pose[:3]
         self.right_ee_target_rpy = pose[3:]
 
-    def lock_configuration(self):
+    def lock_configuration(self, q):
         # sync robot model and compute forward kinematics
         self.robot_model.sync_subscriber()
         self.robot_model.update_kinematics()
@@ -312,15 +312,13 @@ class ArmController:
         # solve dynamics
         tau = pin.rnea(self.robot_model.model,
                        self.robot_model.data,
-                       self.robot_model.q,
+                       q,
                        np.zeros(self.robot_model.model.nv),
                        np.zeros(self.robot_model.model.nv))
 
         # send command to lock the robot in current configuration
-        self.command_publisher.q[12:20] = self.robot_model.q[12:20]
-        self.command_publisher.q[20:27] = self.robot_model.q[32:39]
-        self.command_publisher.dq[12:20] = 0.0
-        self.command_publisher.dq[20:27] = 0.0
+        self.command_publisher.q[12:20] = q[12:20]
+        self.command_publisher.q[20:27] = q[32:39]
         self.command_publisher.tau[12:20] = tau[12:20]
         self.command_publisher.tau[20:27] = tau[32:39]
 

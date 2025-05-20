@@ -13,8 +13,9 @@ def main():
                                    visualize=True)
 
     print('Lock robot in current configuration')
+    q = arm_controller.robot_model.q
     while True:
-        arm_controller.lock_configuration()
+        arm_controller.lock_configuration(q)
         time.sleep(arm_controller.dt)
 
 if __name__ == "__main__":

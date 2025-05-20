@@ -76,6 +76,9 @@ class RobotModel:
         force = wrench[0:3]
         force_magnitude = np.linalg.norm(force) + 1e-6
         force_direction = force / force_magnitude
+        print(f'force: {force}, force_magnitude: {force_magnitude}')
+        # scale down for visualization
+        force_magnitude *= 0.1
         force_transform = self._get_arrow_transformation(origin, force_direction, force_magnitude)
         # add to viewer
         self.viz.viewer[f'{link_name}/force_arrow'].set_object(
@@ -88,6 +91,8 @@ class RobotModel:
         torque = wrench[3:6]
         torque_magnitude = np.linalg.norm(torque) + 1e-6
         torque_direction = torque / torque_magnitude
+        # scale down for visualization
+        torque_magnitude *= 0.1
         torque_transform = self._get_arrow_transformation(origin, torque_direction, torque_magnitude)
         # add to viewer
         self.viz.viewer[f'{link_name}/torque_arrow'].set_object(
@@ -195,9 +200,9 @@ class RobotModel:
         tau_gravity = pin.rnea(self.model,
                                self.data,
                                self.q,
-                               self.dq,
+                               np.zeros(self.model.nv),
                                np.zeros(self.model.nv))
-        wrench = np.linalg.inv(jac @ jac.T) @ jac @ (self.tau)
+        wrench = np.linalg.inv(jac @ jac.T) @ jac @ (self.tau - tau_gravity)
         return wrench
 
 if __name__ == '__main__':
@@ -214,4 +219,5 @@ if __name__ == '__main__':
         robot_model.sync_subscriber()
         robot_model.update_kinematics()
         robot_model.update_visualizer()
+        robot_model.visualize_wrench('left_wrist_yaw_link')
         time.sleep(0.01)
