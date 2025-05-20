@@ -299,7 +299,31 @@ class ArmController:
         self.right_ee_target_position = pose[:3]
         self.right_ee_target_rpy = pose[3:]
 
-    def control_loop(self):
+    def lock_configuration(self):
+        # sync robot model and compute forward kinematics
+        self.robot_model.sync_subscriber()
+        self.robot_model.update_kinematics()
+        # update visualizer if needed
+        if self.visualize:
+            self.robot_model.update_visualizer()
+
+        # compute tau and enforce same q
+        # solve dynamics
+        tau = pin.rnea(self.robot_model.model,
+                       self.robot_model.data,
+                       self.robot_model.q,
+                       np.zeros(self.robot_model.model.nv),
+                       np.zeros(self.robot_model.model.nv))
+
+        # send command to lock the robot in current configuration
+        self.command_publisher.q[12:20] = self.robot_model.q[12:20]
+        self.command_publisher.q[20:27] = self.robot_model.q[32:39]
+        self.command_publisher.dq[12:20] = 0.0
+        self.command_publisher.dq[20:27] = 0.0
+        self.command_publisher.tau[12:20] = tau[12:20]
+        self.command_publisher.tau[20:27] = tau[32:39]
+
+    def control_step(self):
         t = time.time()
         # sync robot model and compute forward kinematics
         self.robot_model.sync_subscriber()
@@ -352,7 +376,7 @@ class ArmController:
 
         print(f'Time: {time.time() - t:.4f}s')
 
-    def sim_loop(self):
+    def sim_step(self):
         t = time.time()
         # update visualizer if needed
         if self.visualize:
@@ -505,6 +529,6 @@ if __name__ == '__main__':
         ryaw = slider_ryaw.get()
         arm_controller.right_ee_target_pose = [rx, ry, rz, rr, rp, ryaw]
 
-        arm_controller.control_loop()
-        # arm_controller.sim_loop()
+        arm_controller.control_step()
+        # arm_controller.sim_step()
         time.sleep(arm_controller.dt)
