@@ -20,9 +20,6 @@ class ArmController:
         self.vlim = vlim
         self.visualize = visualize
 
-        if self.visualize:
-            self.robot_model.init_visualizer()
-
         # initialize channel
         ChannelFactoryInitialize(id=0)
 
@@ -130,6 +127,9 @@ class ArmController:
         self.solver = qpsolvers.available_solvers[0]
         if 'osqp' in qpsolvers.available_solvers:
             self.solver = 'osqp'
+
+        if self.visualize:
+            self.robot_model.init_visualizer()
 
     '''
     left end effector properties
@@ -306,6 +306,7 @@ class ArmController:
         # update visualizer if needed
         if self.visualize:
             self.robot_model.update_visualizer()
+            self.robot_model.visualize_wrench(self.left_ee_name)
 
         # compute tau and enforce same q
         # solve dynamics
@@ -331,6 +332,7 @@ class ArmController:
         # update visualizer if needed
         if self.visualize:
             self.robot_model.update_visualizer()
+            self.robot_model.visualize_wrench(self.left_ee_name)
 
         # update configuration and posture task
         self.configuration.update(self.robot_model.q)
@@ -381,6 +383,7 @@ class ArmController:
         # update visualizer if needed
         if self.visualize:
             self.robot_model.update_visualizer()
+            self.robot_model.visualize_wrench(self.left_ee_name)
 
         # update configuration and posture task
         self.configuration.update(self.robot_model.q)

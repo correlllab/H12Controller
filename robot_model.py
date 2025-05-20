@@ -4,8 +4,11 @@ import numpy as np
 import pinocchio as pin
 from pinocchio.visualize import MeshcatVisualizer
 
-from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+import meshcat
+import meshcat.geometry as geo
+import meshcat.transformations as tf
 
+from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from channel_interface import StateSubscriber
 
 class RobotModel:
@@ -63,6 +66,52 @@ class RobotModel:
             print('ImportError: MeshcatVisualizer requires the meshcat package.')
             print(err)
             exit(0)
+
+    def visualize_wrench(self, link_name):
+        # get frame position and wrench
+        origin = self.get_frame_position(link_name)
+        wrench = self.get_frame_wrench(link_name)
+
+        # create cyclinder to represent force
+        force = wrench[0:3]
+        force_magnitude = np.linalg.norm(force) + 1e-6
+        force_direction = force / force_magnitude
+        force_transform = self._get_arrow_transformation(origin, force_direction, force_magnitude)
+        # add to viewer
+        self.viz.viewer[f'{link_name}/force_arrow'].set_object(
+            geo.Cylinder(height=force_magnitude, radius=0.01)
+        )
+        self.viz.viewer[f'{link_name}/force_arrow'].set_transform(force_transform)
+        self.viz.viewer[f'{link_name}/force_arrow'].set_property('color', (1.0, 0.0, 0.0, 0.8))
+
+        # create cyclinder to represent torque
+        torque = wrench[3:6]
+        torque_magnitude = np.linalg.norm(torque) + 1e-6
+        torque_direction = torque / torque_magnitude
+        torque_transform = self._get_arrow_transformation(origin, torque_direction, torque_magnitude)
+        # add to viewer
+        self.viz.viewer[f'{link_name}/torque_arrow'].set_object(
+            geo.Cylinder(height=torque_magnitude, radius=0.01)
+        )
+        self.viz.viewer[f'{link_name}/torque_arrow'].set_transform(torque_transform)
+        self.viz.viewer[f'{link_name}/torque_arrow'].set_property('color', (0.0, 0.0, 1.0, 0.8))
+
+    def _get_arrow_transformation(self, origin, direction, magnitude):
+        # create rotation matrix to align Y-axis with the direction vector
+        y_axis = np.array([0, 1, 0])
+        rotation_axis = np.cross(y_axis, direction)
+        if np.linalg.norm(rotation_axis) < 1e-6:
+            rotation_matrix = np.eye(3) if np.dot(y_axis, direction) > 0 else -np.eye(3)
+        else:
+            rotation_axis /= np.linalg.norm(rotation_axis)
+            angle = np.arccos(np.clip(np.dot(y_axis, direction), -1.0, 1.0))
+            rotation_matrix = tf.rotation_matrix(angle, rotation_axis)[:3, :3]
+
+        transform = np.eye(4)
+        transform[:3, :3] = rotation_matrix
+        transform[:3, 3] = origin + rotation_matrix @ np.array([0, 1, 0]) * magnitude / 2
+
+        return transform
 
     def init_subscriber(self):
         self.state_subscriber = StateSubscriber()
@@ -148,7 +197,7 @@ class RobotModel:
                                self.q,
                                self.dq,
                                np.zeros(self.model.nv))
-        wrench = np.linalg.inv(jac @ jac.T) @ jac @ (self.tau - tau_gravity)
+        wrench = np.linalg.inv(jac @ jac.T) @ jac @ (self.tau)
         return wrench
 
 if __name__ == '__main__':
@@ -166,4 +215,3 @@ if __name__ == '__main__':
         robot_model.update_kinematics()
         robot_model.update_visualizer()
         time.sleep(0.01)
-        print(f'frame twist {robot_model.get_frame_twist("left_wrist_yaw_link")}')
