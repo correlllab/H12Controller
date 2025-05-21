@@ -322,6 +322,39 @@ class ArmController:
         self.command_publisher.tau[12:20] = tau[12:20]
         self.command_publisher.tau[20:27] = tau[32:39]
 
+    def goto_configuration(self, q):
+        # sync robot model and compute forward kinematics
+        self.robot_model.sync_subscriber()
+        self.robot_model.update_kinematics()
+        # update visualizer if needed
+        if self.visualize:
+            self.robot_model.update_visualizer()
+            self.robot_model.visualize_wrench(self.left_ee_name)
+
+        diff = q - self.robot_model.q
+        # compute end effector velocity
+        v_left = self.robot_model.compute_frame_twist(self.left_ee_name, diff)[0:3]
+        v_right = self.robot_model.compute_frame_twist(self.right_ee_name, diff)[0:3]
+        # limit end effector velocity
+        scaler = np.min([0.3,
+                         self.vlim / (np.linalg.norm(v_left) + 1e-3),
+                         self.vlim / (np.linalg.norm(v_right) + 1e-3)])
+
+        # solve dynamics
+        tau = pin.rnea(self.robot_model.model,
+                       self.robot_model.data,
+                       self.robot_model.q + scaler * diff * self.dt,
+                       self.robot_model.dq,
+                       np.zeros(self.robot_model.model.nv))
+
+        # send the velocity command to the robot
+        self.command_publisher.q[12:20] = self.robot_model.q[12:20] + scaler * diff[12:20] * self.dt
+        self.command_publisher.q[20:27] = self.robot_model.q[32:39] + scaler * diff[32:39] * self.dt
+        self.command_publisher.dq[12:20] = scaler * diff[12:20]
+        self.command_publisher.dq[20:27] = scaler * diff[32:39]
+        self.command_publisher.tau[12:20] = tau[12:20]
+        self.command_publisher.tau[20:27] = tau[32:39]
+
     def control_step(self):
         t = time.time()
         # sync robot model and compute forward kinematics
