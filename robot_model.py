@@ -76,7 +76,7 @@ class RobotModel:
         force = wrench[0:3]
         force_magnitude = np.linalg.norm(force) + 1e-6
         force_direction = force / force_magnitude
-        print(f'force: {force}, force_magnitude: {force_magnitude}')
+        # print(f'force: {force}, force_magnitude: {force_magnitude}')
         # scale down for visualization
         force_magnitude *= 0.1
         force_transform = self._get_arrow_transformation(origin, force_direction, force_magnitude)

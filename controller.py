@@ -76,6 +76,9 @@ class ArmController:
         self.posture_task = pink.PostureTask(
             cost=1e-3
         )
+        # variable for easier access
+        self._left_arm_action = np.zeros(7)
+        self._right_arm_action = np.zeros(7)
 
         # self.sphere_model, _, self.collision_model = pin.buildModelsFromUrdf('assets/h1_2/h1_2_sphere.urdf')
         # self.collision_data = pink.utils.process_collision_pairs(
@@ -130,6 +133,28 @@ class ArmController:
 
         if self.visualize:
             self.robot_model.init_visualizer()
+
+    '''
+    joint position for left and right arms
+    '''
+    @property
+    def left_arm_q(self):
+        return np.copy(self.robot_model.q[13:20])
+
+    @property
+    def right_arm_q(self):
+        return np.copy(self.robot_model.q[32:39])
+
+    '''
+    joint action for left and right arms
+    '''
+    @property
+    def left_arm_action(self):
+        return np.copy(self._left_arm_action)
+
+    @property
+    def right_arm_action(self):
+        return np.copy(self._right_arm_action)
 
     '''
     left end effector properties
@@ -299,6 +324,37 @@ class ArmController:
         self.right_ee_target_position = pose[:3]
         self.right_ee_target_rpy = pose[3:]
 
+    def limit_joint_vel(self, vel):
+        # compute end effector velocity
+        v_left = self.robot_model.compute_frame_twist(self.left_ee_name, vel)[0:3]
+        v_right = self.robot_model.compute_frame_twist(self.right_ee_name, vel)[0:3]
+        # limit end effector velocity
+        scaler = np.min([0.3,
+                         self.vlim / (np.linalg.norm(v_left) + 1e-3),
+                         self.vlim / (np.linalg.norm(v_right) + 1e-3)])
+
+        return scaler * vel
+
+    def apply_joint_vel(self, vel):
+        # solve dynamics
+        tau = pin.rnea(self.robot_model.model,
+                       self.robot_model.data,
+                       self.robot_model.q + vel * self.dt,
+                       self.robot_model.dq,
+                       np.zeros(self.robot_model.model.nv))
+
+        # update joint action
+        self._left_arm_action = vel[13:20]
+        self._right_arm_action = vel[32:39]
+
+        # send the velocity command to the robot
+        self.command_publisher.q[12:20] = self.robot_model.q[12:20] + vel[12:20] * self.dt
+        self.command_publisher.q[20:27] = self.robot_model.q[32:39] + vel[32:39] * self.dt
+        self.command_publisher.dq[12:20] = vel[12:20]
+        self.command_publisher.dq[20:27] = vel[32:39]
+        self.command_publisher.tau[12:20] = tau[12:20]
+        self.command_publisher.tau[20:27] = tau[32:39]
+
     def lock_configuration(self, q):
         # sync robot model and compute forward kinematics
         self.robot_model.sync_subscriber()
@@ -331,40 +387,11 @@ class ArmController:
             self.robot_model.update_visualizer()
             self.robot_model.visualize_wrench(self.left_ee_name)
 
-        diff = q - self.robot_model.q
-        # compute end effector velocity
-        v_left = self.robot_model.compute_frame_twist(self.left_ee_name, diff)[0:3]
-        v_right = self.robot_model.compute_frame_twist(self.right_ee_name, diff)[0:3]
-        # limit end effector velocity
-        scaler = np.min([0.3,
-                         self.vlim / (np.linalg.norm(v_left) + 1e-3),
-                         self.vlim / (np.linalg.norm(v_right) + 1e-3)])
+        # compute joint difference and apply
+        vel = self.limit_joint_vel(q - self.robot_model.q)
+        self.apply_joint_vel(vel)
 
-        # solve dynamics
-        tau = pin.rnea(self.robot_model.model,
-                       self.robot_model.data,
-                       self.robot_model.q + scaler * diff * self.dt,
-                       self.robot_model.dq,
-                       np.zeros(self.robot_model.model.nv))
-
-        # send the velocity command to the robot
-        self.command_publisher.q[12:20] = self.robot_model.q[12:20] + scaler * diff[12:20] * self.dt
-        self.command_publisher.q[20:27] = self.robot_model.q[32:39] + scaler * diff[32:39] * self.dt
-        self.command_publisher.dq[12:20] = scaler * diff[12:20]
-        self.command_publisher.dq[20:27] = scaler * diff[32:39]
-        self.command_publisher.tau[12:20] = tau[12:20]
-        self.command_publisher.tau[20:27] = tau[32:39]
-
-    def control_step(self):
-        t = time.time()
-        # sync robot model and compute forward kinematics
-        self.robot_model.sync_subscriber()
-        self.robot_model.update_kinematics()
-        # update visualizer if needed
-        if self.visualize:
-            self.robot_model.update_visualizer()
-            self.robot_model.visualize_wrench(self.left_ee_name)
-
+    def solve_ik(self):
         # update configuration and posture task
         self.configuration.update(self.robot_model.q)
         self.posture_task.set_target_from_configuration(self.configuration)
@@ -384,28 +411,23 @@ class ArmController:
         vel[20:32] = 0.0
         vel[39:] = 0.0
 
-        # compute end effector velocity
-        v_left = self.robot_model.compute_frame_twist(self.left_ee_name, vel)[0:3]
-        v_right = self.robot_model.compute_frame_twist(self.right_ee_name, vel)[0:3]
-        # limit end effector velocity
-        scaler = np.min([0.3,
-                         self.vlim / (np.linalg.norm(v_left) + 1e-3),
-                         self.vlim / (np.linalg.norm(v_right) + 1e-3)])
+        vel = self.limit_joint_vel(vel)
 
-        # solve dynamics
-        tau = pin.rnea(self.robot_model.model,
-                       self.robot_model.data,
-                       self.robot_model.q + scaler * vel * self.dt,
-                       self.robot_model.dq,
-                       np.zeros(self.robot_model.model.nv))
+        return vel
 
-        # send the velocity command to the robot
-        self.command_publisher.q[12:20] = self.robot_model.q[12:20] + scaler * vel[12:20] * self.dt
-        self.command_publisher.q[20:27] = self.robot_model.q[32:39] + scaler * vel[32:39] * self.dt
-        self.command_publisher.dq[12:20] = scaler * vel[12:20]
-        self.command_publisher.dq[20:27] = scaler * vel[32:39]
-        self.command_publisher.tau[12:20] = tau[12:20]
-        self.command_publisher.tau[20:27] = tau[32:39]
+    def control_step(self):
+        t = time.time()
+        # sync robot model and compute forward kinematics
+        self.robot_model.sync_subscriber()
+        self.robot_model.update_kinematics()
+        # update visualizer if needed
+        if self.visualize:
+            self.robot_model.update_visualizer()
+            self.robot_model.visualize_wrench(self.left_ee_name)
+
+        # solve IK and apply the control
+        vel = self.solve_ik()
+        self.apply_joint_vel(vel)
 
         print(f'Time: {time.time() - t:.4f}s')
 
@@ -420,31 +442,9 @@ class ArmController:
         self.configuration.update(self.robot_model.q)
         self.posture_task.set_target_from_configuration(self.configuration)
 
-        # solve IK
-        vel = pink.solve_ik(
-            self.configuration,
-            self.tasks,
-            dt=self.dt,
-            solver=self.solver,
-            barriers=self.barriers,
-            safety_break=False
-        )
-
-        # set velocity at non-moving joints to zero
-        vel[0:12] = 0.0
-        vel[20:32] = 0.0
-        vel[39:] = 0.0
-
-        # compute end effector velocity
-        v_left = self.robot_model.compute_frame_twist(self.left_ee_name, vel)[0:3]
-        v_right = self.robot_model.compute_frame_twist(self.right_ee_name, vel)[0:3]
-        # limit end effector velocity
-        scaler = np.min([0.3,
-                         self.vlim / (np.linalg.norm(v_left) + 1e-3),
-                         self.vlim / (np.linalg.norm(v_right) + 1e-3)])
-
-        # apply control
-        self.robot_model._q = self.robot_model.q + scaler * vel * self.dt
+        # solve IK and apply the control
+        vel = self.solve_ik()
+        self.robot_model._q = self.robot_model.q + vel * self.dt
         self.robot_model.update_kinematics()
 
         print(f'Time: {time.time() - t:.4f}s')
