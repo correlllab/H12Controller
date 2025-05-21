@@ -1,316 +1,568 @@
-import numpy as np
 import time
+import numpy as np
+import tkinter as tk
 
-
-from robot_control.robot_arm import H1_2_ArmController
-from robot_control.robot_arm_ik import H1_2_ArmIK
-from robot_control.inspire_hand import H1HandController
-
-from scipy.spatial.transform import Rotation as R
-
-from pose_constraints import start_left, start_right, in_safety_cylinder, out_of_range
-import cv2
+import pink
+import qpsolvers
 import pinocchio as pin
-from scipy.spatial.transform import Rotation as R
 
-import threading
-import matplotlib
-matplotlib.use("Agg") 
+from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+from unitree_sdk2py.utils.thread import RecurrentThread
 
-def rpy_xyz_to_matrix( x, y, z, roll, pitch, yaw):
-    r = R.from_euler('xyz', [roll, pitch, yaw])
-    rotation_matrix = r.as_matrix()
+from robot_model import RobotModel
+from channel_interface import CommandPublisher
 
-    matrix = np.eye(4)
-    matrix[:3, :3] = rotation_matrix
-    matrix[:3, 3] = [x, y, z]
+class ArmController:
+    def __init__(self, filename, dt=0.01, vlim=1.0, visualize=False):
+        # initialize robot model
+        self.robot_model = RobotModel(filename)
+        self.dt = dt
+        self.vlim = vlim
+        self.visualize = visualize
 
-    return matrix
-def matrix_to_rpy_xyz(matrix):
-    rotation_matrix = matrix[:3, :3]
-    translation = matrix[:3, 3]
+        # initialize channel
+        ChannelFactoryInitialize(id=0)
 
-    r = R.from_matrix(rotation_matrix)
-    roll, pitch, yaw = r.as_euler('xyz')
-    return *translation, roll, pitch, yaw, 
+        # initialize subscriber in robot model
+        self.robot_model.init_subscriber()
+        time.sleep(0.5)
+        self.robot_model.sync_subscriber()
+        self.robot_model.update_kinematics()
 
-class ControllerWrapper():
-    def __init__(self):
-        self.arm_ctrl = H1_2_ArmController()
-        self.finger_ctrl = H1HandController()
-        self.arm_ik = H1_2_ArmIK(Visualization=False)
+        # initialize command publisher
+        self.command_publisher = CommandPublisher()
+        # enable upper body motors and set initial q & gain
+        motor_ids = np.array([i for i in range(12, 27)])
+        init_q = self.robot_model.q[np.array([i for i in range(12, 20)] + [i for i in range(32, 39)])]
+        # gain for arms
+        self.command_publisher.kp[13:16] = 180.0
+        self.command_publisher.kd[13:16] = 3.0
+        self.command_publisher.kp[20:23] = 180.0
+        self.command_publisher.kd[20:23] = 3.0
+        # gain for elbow
+        self.command_publisher.kp[16:18] = 150.0
+        self.command_publisher.kd[16:18] = 3.0
+        self.command_publisher.kp[23:25] = 150.0
+        self.command_publisher.kd[23:25] = 3.0
+        # gain for wrist
+        self.command_publisher.kp[18:20] = 50.0
+        self.command_publisher.kd[18:20] = 2.0
+        self.command_publisher.kp[25:27] = 50.0
+        self.command_publisher.kd[25:27] = 2.0
+        # gain for torso
+        self.command_publisher.kp[12] = 100.0
+        self.command_publisher.kd[12] = 2.0
+        self.command_publisher.enable_motor(motor_ids, init_q)
+        self.command_publisher.start_publisher()
 
-        self.left_arm = start_left  # [x, y, z, roll, pitch, yaw]
-        self.right_arm = start_right
-        self.max_velocity = 0.5  # meters per second
-        self.step_hz = 50  # control loop frequency (Hz)
-        self.loop_dt = 1.0 / self.step_hz
-        self.q = None
-        self.tau = None
-        self.set_arms_pose(*self.left_arm, *self.right_arm)
-        self.set_fingers(np.ones(6), np.ones(6))
+        # initialize IK tasks
+        # left arm end effector task
+        self.left_ee_name = 'left_wrist_yaw_link'
+        self.left_ee_task = pink.FrameTask(
+            self.left_ee_name,
+            position_cost=50.0,
+            orientation_cost=30.0,
+            lm_damping=1.0
+        )
+        # right arm end effector task
+        self.right_ee_name = 'right_wrist_yaw_link'
+        self.right_ee_task = pink.FrameTask(
+            self.right_ee_name,
+            position_cost=50.0,
+            orientation_cost=30.0,
+            lm_damping=1.0
+        )
+        # posture task as regularization
+        self.posture_task = pink.PostureTask(
+            cost=1e-3
+        )
 
-    def set_fingers(self, left_hand_array, right_hand_array):
-        self.finger_ctrl.crtl(right_hand_array, left_hand_array)
+        # self.sphere_model, _, self.collision_model = pin.buildModelsFromUrdf('assets/h1_2/h1_2_sphere.urdf')
+        # self.collision_data = pink.utils.process_collision_pairs(
+        #     self.sphere_model,
+        #     self.collision_model,
+        #     'assets/h1_2/h1_2_sphere_collision.srdf',
+        # )
+        self.collision_model = self.robot_model.collision_model
+        self.collision_data = pink.utils.process_collision_pairs(
+            self.robot_model.model,
+            self.robot_model.collision_model,
+            'assets/h1_2/h1_2_collision.srdf',
+        )
 
-    def n_steps(self, x, y, z, arm):
-        current_position = self.left_arm[:3] if arm == "left" else self.right_arm[:3]
-        target_position = np.array([x, y, z])
-        distance = np.linalg.norm(target_position - current_position)
-        dt = 1.0 / self.step_hz
-        steps = int(np.ceil(distance / (self.max_velocity * dt)))
-        return max(steps, 1)
-    
-    def get_ee_pose(self, arm="L"):
-        # 1. Get the configuration we want to inspect
-        q = self.q
+        # configuration trakcing robot states
+        self.configuration = pink.Configuration(
+            self.robot_model.model,
+            self.robot_model.data,
+            self.robot_model.zero_q,
+            # collision_model=self.collision_model,
+            # collision_data=self.collision_data,
+        )
 
-        # 2. Use ONE data object
-        data = self.arm_ik.reduced_robot.data        # already exists
+        # collision barriers
+        self.collision_barrier = pink.barriers.SelfCollisionBarrier(
+            n_collision_pairs=len(self.collision_model.collisionPairs),
+            gain=20.0,
+            safe_displacement_gain=1.0,
+            d_min=0.05,
+        )
 
-        # 3. Forward kinematics + frame placements
-        pin.framesForwardKinematics(self.arm_ik.reduced_robot.model, data, q)
-        pin.updateFramePlacements(self.arm_ik.reduced_robot.model, data)
+        # spherical collision barriers
+        self.ee_barrier = pink.barriers.BodySphericalBarrier(
+            ('left_wrist_yaw_link', 'right_wrist_yaw_link'),
+            d_min=0.2,
+            gain = 100.0,
+            safe_displacement_gain=1.0
+        )
 
-        # 4. Pick the frame
-        fid = self.arm_ik.reduced_robot.model.getFrameId("L_ee") if arm.upper().startswith("L") else self.arm_ik.reduced_robot.model.getFrameId("R_ee")
-        # fid = self.arm_ik.reduced_robot.model.getFrameId("left_wrist_yaw_link") if arm.upper().startswith("L") else self.arm_ik.reduced_robot.model.getFrameId("R_ee")
+        # set initial target for all tasks
+        self.tasks = [self.left_ee_task, self.right_ee_task, self.posture_task]
+        for task in self.tasks:
+            task.set_target_from_configuration(self.configuration)
+        # set collision barrier
+        self.barriers = []
+        # self.barriers = [self.ee_barrier]
+        # self.barriers = [self.collision_barrier]
+        # select solver
+        self.solver = qpsolvers.available_solvers[0]
+        if 'osqp' in qpsolvers.available_solvers:
+            self.solver = 'osqp'
 
-        T_ref_EE = data.oMf[fid]                        # world → EE
+        if self.visualize:
+            self.robot_model.init_visualizer()
 
-        # 6. Decompose
-        x, y, z = T_ref_EE.translation
-        roll, pitch, yaw = R.from_matrix(T_ref_EE.rotation).as_euler('xyz', degrees=False)
-        return x, y, z, roll, pitch, yaw
+    '''
+    left end effector properties
+    left_ee_transformation: transformation matrix of the left end effector
+    left_ee_position: position of the left end effector
+    left_ee_rotation: rotation matrix of the left end effector
+    left_ee_rpy: roll, pitch, yaw of the left end effector
+    left_ee_pose: pose of the left end effector (x, y, z, roll, pitch, yaw)
+    '''
+    @property
+    def left_ee_transformation(self):
+        return self.robot_model.get_frame_transformation(self.left_ee_name)
 
-    def get_frame_wrench(
-            self,
-            arm="left",
-            tau_meas=None,                      # raw motor torques, shape (nv,)
-            strip_model=True,
-            ref=pin.ReferenceFrame.LOCAL_WORLD_ALIGNED):
-        """
-        Cartesian wrench [Fx, Fy, Fz, Mx, My, Mz] acting on L_ee or R_ee.
-        """
-        # --------- 0. Resolve arm name -----------------------------------
-        arm = arm.lower()[0]                   # 'left' → 'l', 'L' → 'l'
-        frame_name = "L_ee" if arm == 'l' else "R_ee"
+    @property
+    def left_ee_position(self):
+        return self.robot_model.get_frame_position(self.left_ee_name)
 
-        # --------- 1. Acquire torques ------------------------------------
-        # If the caller didn’t supply tau_meas, fall back to self.tau
-        if tau_meas is None:
-            tau_meas = self.tau                # <── NEW
-        if strip_model and tau_meas is None:
-            raise ValueError("tau_meas required when strip_model=True")
+    @property
+    def left_ee_rotation(self):
+        return self.robot_model.get_frame_rotation(self.left_ee_name)
 
-        model = self.arm_ik.reduced_robot.model
-        data  = self.arm_ik.reduced_robot.data
-        q     = self.q
-        v     = getattr(self, "dq", np.zeros(model.nv))
-        a     = np.zeros(model.nv)
+    @property
+    def left_ee_rpy(self):
+        return pin.rpy.matrixToRpy(self.left_ee_rotation)
 
-        # Predicted gravity / inertia torques
-        tau_model = pin.rnea(model, data, q, v, a) if strip_model else 0.0
-        tau_ext   = tau_meas - tau_model
+    @property
+    def left_ee_pose(self):
+        return np.concatenate([self.left_ee_position,
+                               self.left_ee_rpy])
 
-        # --------- 2. Spatial Jacobian -----------------------------------
-        pin.computeJointJacobians(model, data, q)
-        fid = model.getFrameId(frame_name)
-        J   = pin.computeFrameJacobian(model, data, q, fid, ref)   # 6 × nv
+    '''
+    left end effector properties
+    left_ee_transformation: transformation matrix of the left end effector
+    left_ee_position: position of the left end effector
+    left_ee_rotation: rotation matrix of the left end effector
+    left_ee_rpy: roll, pitch, yaw of the left end effector
+    left_ee_pose: pose of the left end effector (x, y, z, roll, pitch, yaw)
+    '''
+    @property
+    def right_ee_transformation(self):
+        return self.robot_model.get_frame_transformation(self.right_ee_name)
 
-        # --------- 3. Solve  Jᵀ w = τ_ext  -------------------------------
-        wrench, *_ = np.linalg.lstsq(J.T, tau_ext, rcond=None)
-        return wrench 
-            
+    @property
+    def right_ee_position(self):
+        return self.robot_model.get_frame_position(self.right_ee_name)
 
-    def set_arms_pose(self, Lx, Ly, Lz, Lroll, Lpitch, Lyaw, Rx, Ry, Rz, Rroll, Rpitch, Ryaw):
-        if in_safety_cylinder(Lx, Ly, Lz):
-            print(f"Left pose in safety cylinder {Lx=}, {Ly=}, {Lz=}")
-            return
-        if in_safety_cylinder(Rx, Ry, Rz):
-            print(f"Right pose in safety cylinder {Rx=}, {Ry=}, {Rz=}")
-            return
-        if out_of_range(Lx, Ly, Lz, arm="left"):
-            print(f"Left pose out of range {Lx=}, {Ly=}, {Lz=}")
-            return
-        if out_of_range(Rx, Ry, Rz, arm="right"):
-            print(f"Right pose out of range {Rx=}, {Ry=}, {Rz=}")
-            return
+    @property
+    def right_ee_rotation(self):
+        return self.robot_model.get_frame_rotation(self.right_ee_name)
 
-        steps = max(self.n_steps(Lx, Ly, Lz, "left"), self.n_steps(Rx, Ry, Rz, "right"))
+    @property
+    def right_ee_rpy(self):
+        return pin.rpy.matrixToRpy(self.right_ee_rotation)
 
-        start_left_arm = self.left_arm.copy()
-        start_right_arm = self.right_arm.copy()
+    @property
+    def right_ee_pose(self):
+        return np.concatenate([self.right_ee_position,
+                               self.right_ee_rpy])
 
-        for i in range(steps + 1):
-            loop_start = time.perf_counter()
-            alpha = i / steps
+    '''
+    left end effector target properties
+    left_ee_target_transformation: transformation matrix of the left end effector target
+    left_ee_target_position: position of the left end effector target
+    left_ee_target_rotation: rotation matrix of the left end effector target
+    left_ee_target_rpy: roll, pitch, yaw of the left end effector target
+    left_ee_target_pose: pose of the left end effector target (x, y, z, roll, pitch, yaw)
+    '''
+    @property
+    def left_ee_target_transformation(self):
+        return self.left_ee_task.transform_target_to_world.np
 
-            current_L = [
-                start_left_arm[j] + alpha * (np.array([Lx, Ly, Lz, Lroll, Lpitch, Lyaw])[j] - start_left_arm[j])
-                for j in range(6)
-            ]
-            current_R = [
-                start_right_arm[j] + alpha * (np.array([Rx, Ry, Rz, Rroll, Rpitch, Ryaw])[j] - start_right_arm[j])
-                for j in range(6)
-            ]
+    @left_ee_target_transformation.setter
+    def left_ee_target_transformation(self, transformation):
+        assert(transformation.shape == (4, 4)), 'Transformation should be a 4x4 matrix.'
+        self.left_ee_task.transform_target_to_world.np = transformation
 
-            self.left_arm = current_L
-            self.right_arm = current_R
+    @property
+    def left_ee_target_position(self):
+        return self.left_ee_task.transform_target_to_world.translation
 
-            constructed_l_target = rpy_xyz_to_matrix(*self.left_arm)
-            constructed_r_target = rpy_xyz_to_matrix(*self.right_arm)
+    @left_ee_target_position.setter
+    def left_ee_target_position(self, position):
+        assert(len(position) == 3), 'Position should be a list of 3 elements (x, y, z).'
+        self.left_ee_task.transform_target_to_world.translation = np.array(position)
 
-            current_lr_arm_q = self.arm_ctrl.get_current_dual_arm_q()
-            current_lr_arm_dq = self.arm_ctrl.get_current_dual_arm_dq()
+    @property
+    def left_ee_target_rotation(self):
+        return self.left_ee_task.transform_target_to_world.rotation
 
-            sol_q, sol_tauff = self.arm_ik.solve_ik(
-                constructed_l_target,
-                constructed_r_target,
-                current_lr_arm_q,
-                current_lr_arm_dq
-            )
+    @left_ee_target_rotation.setter
+    def left_ee_target_rotation(self, rotation):
+        assert(rotation.shape == (3, 3)), 'Rotation should be a 3x3 matrix.'
+        self.left_ee_task.transform_target_to_world.rotation = rotation
 
-            if sol_q is None or sol_tauff is None:
-                print(f"IK failed at step {i}")
-                break
-            self.q = sol_q
-            self.tau = sol_tauff
-            self.arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
-            #print(f"Step {i}/{steps}: Left Arm: {self.left_arm}, Right Arm: {self.right_arm}")
-            elapsed = time.perf_counter() - loop_start
-            sleep_time = self.loop_dt - elapsed
-            time.sleep(max(0, sleep_time))
-        return
-    def set_arms_velocity(self, vLx, vLy, vLz, vLroll, vLpitch, vLyaw, vRx, vRy, vRz, vRroll, vRpitch, vRyaw, total_time=1, blocking=True):
-        if not blocking:
-            t = threading.Thread(target=self.set_arms_velocity, args=(vLx, vLy, vLz, vLroll, vLpitch, vLyaw, vRx, vRy, vRz, vRroll, vRpitch, vRyaw, total_time, True), daemon=True)
-            t.start()
-            return t
-        start_time = time.time()
-        v_left = [vLx, vLy, vLz, vLroll, vLpitch, vLyaw]
-        v_right = [vRx, vRy, vRz, vRroll, vRpitch, vRyaw]
-        while time.time() - start_time < total_time:
-            loop_start = time.perf_counter()
-            current_L = [self.left_arm[j] + (v_left[j] * self.loop_dt) for j in range(len(self.left_arm)) ]
-            current_R = [self.right_arm[j] + (v_right[j] * self.loop_dt) for j in range(len(self.right_arm)) ]
-            if in_safety_cylinder(current_L[0], current_L[1], current_L[2]):
-                print(f"Left pose in safety cylinder {current_L[0]=}, {current_L[1]=}, {current_L[2]=}")
-                return
-            if in_safety_cylinder(current_R[0], current_R[1], current_R[2]):
-                print(f"Right pose in safety cylinder {current_R[0]=}, {current_R[1]=}, {current_R[2]=}")
-                return
-            if out_of_range(current_L[0], current_L[1], current_L[2], arm="left"):
-                print(f"Left pose out of range {current_L[0]=}, {current_L[1]=}, {current_L[2]=}")
-                return
-            if out_of_range(current_R[0], current_R[1], current_R[2], arm="right"):
-                print(f"Right pose out of range {current_R[0]=}, {current_R[1]=}, {current_R[2]=}")
-            self.left_arm = current_L
-            self.right_arm = current_R
+    @property
+    def left_ee_target_rpy(self):
+        return pin.rpy.matrixToRpy(self.left_ee_target_rotation)
 
-            constructed_l_target = rpy_xyz_to_matrix(*self.left_arm)
-            constructed_r_target = rpy_xyz_to_matrix(*self.right_arm)
+    @left_ee_target_rpy.setter
+    def left_ee_target_rpy(self, rpy):
+        assert(len(rpy) == 3), 'Rpy should be a list of 3 elements (roll, pitch, yaw).'
+        self.left_ee_target_rotation = pin.rpy.rpyToMatrix(np.array(rpy))
 
-            current_lr_arm_q = self.arm_ctrl.get_current_dual_arm_q()
-            current_lr_arm_dq = self.arm_ctrl.get_current_dual_arm_dq()
+    @property
+    def left_ee_target_pose(self):
+        return np.concatenate([self.left_ee_target_position,
+                               self.left_ee_target_rpy])
 
-            sol_q, sol_tauff = self.arm_ik.solve_ik(
-                constructed_l_target,
-                constructed_r_target,
-                current_lr_arm_q,
-                current_lr_arm_dq
-            )
+    @left_ee_target_pose.setter
+    def left_ee_target_pose(self, pose):
+        assert(len(pose) == 6), 'Pose should be a list of 6 elements (x, y, z, roll, pitch, yaw).'
+        self.left_ee_target_position = pose[:3]
+        self.left_ee_target_rpy = pose[3:]
 
-            if sol_q is None or sol_tauff is None:
-                print(f"IK failed at step {i}")
-                break
-            self.q = sol_q
-            self.tau = sol_tauff
-            self.arm_ctrl.ctrl_dual_arm(sol_q, sol_tauff)
+    '''
+    right end effector target properties
+    right_ee_target_transformation: transformation matrix of the right end effector target
+    right_ee_target_position: position of the right end effector target
+    right_ee_target_rotation: rotation matrix of the right end effector target
+    right_ee_target_rpy: roll, pitch, yaw of the right end effector target
+    right_ee_target_pose: pose of the right end effector target (x, y, z, roll, pitch, yaw)
+    '''
+    @property
+    def right_ee_target_transformation(self):
+        return self.right_ee_task.transform_target_to_world.np
 
-            elapsed = time.perf_counter() - loop_start
-            sleep_time = self.loop_dt - elapsed
-            time.sleep(max(0, sleep_time))
+    @right_ee_target_transformation.setter
+    def right_ee_target_transformation(self, transformation):
+        assert(transformation.shape == (4, 4)), 'Transformation should be a 4x4 matrix.'
+        self.right_ee_task.transform_target_to_world.np = transformation
 
-    def set_arm_velocity(self, vx, vy, vz, vroll, vpitch, vyaw, arm="left", total_time=1, blocking=True):
-        if arm == "left":
-            self.set_arms_velocity(vx, vy, vz, vroll, vpitch, vyaw, 0,0,0,0,0,0, total_time=total_time, blocking=blocking)
-        elif arm == "right":
-            self.set_arms_velocity(0,0,0,0,0,0, vx, vy, vz, vroll, vpitch, vyaw, total_time=total_time, blocking=blocking)
-        else:
-            raise ValueError("Invalid arm specified. Use 'left' or 'right'.")
-            
+    @property
+    def right_ee_target_position(self):
+        return self.right_ee_task.transform_target_to_world.translation
 
-    def set_arm_pose(self, x, y, z, r, p, yaw, arm="left"):
-        if in_safety_cylinder(x, y, z):
-            print(f"{arm.capitalize()} pose in safety cylinder {x=}, {y=}, {z=}")
-            return
+    @right_ee_target_position.setter
+    def right_ee_target_position(self, position):
+        assert(len(position) == 3), 'Position should be a list of 3 elements (x, y, z).'
+        self.right_ee_task.transform_target_to_world.translation = np.array(position)
 
-        if arm == "left":
-            self.set_arms_pose(*[x,y,z,r,p,yaw], *self.right_arm)
-        elif arm == "right":
-            self.set_arms_pose(*self.left_arm, *[x,y,z,r,p,yaw])
-        else:
-            raise ValueError("Invalid arm specified. Use 'left' or 'right'.")
+    @property
+    def right_ee_target_rotation(self):
+        return self.right_ee_task.transform_target_to_world.rotation
 
-        
+    @right_ee_target_rotation.setter
+    def right_ee_target_rotation(self, rotation):
+        assert(rotation.shape == (3, 3)), 'Rotation should be a 3x3 matrix.'
+        self.right_ee_task.transform_target_to_world.rotation = rotation
 
+    @property
+    def right_ee_target_rpy(self):
+        return pin.rpy.matrixToRpy(self.right_ee_target_rotation)
+
+    @right_ee_target_rpy.setter
+    def right_ee_target_rpy(self, rpy):
+        assert(len(rpy) == 3), 'Rpy should be a list of 3 elements (roll, pitch, yaw).'
+        self.right_ee_target_rotation = pin.rpy.rpyToMatrix(np.array(rpy))
+
+    @property
+    def right_ee_target_pose(self):
+        return np.concatenate([self.right_ee_target_position,
+                               self.right_ee_target_rpy])
+
+    @right_ee_target_pose.setter
+    def right_ee_target_pose(self, pose):
+        assert(len(pose) == 6), 'Pose should be a list of 6 elements (x, y, z, roll, pitch, yaw).'
+        self.right_ee_target_position = pose[:3]
+        self.right_ee_target_rpy = pose[3:]
+
+    def lock_configuration(self, q):
+        # sync robot model and compute forward kinematics
+        self.robot_model.sync_subscriber()
+        self.robot_model.update_kinematics()
+        # update visualizer if needed
+        if self.visualize:
+            self.robot_model.update_visualizer()
+            self.robot_model.visualize_wrench(self.left_ee_name)
+
+        # compute tau and enforce same q
+        # solve dynamics
+        tau = pin.rnea(self.robot_model.model,
+                       self.robot_model.data,
+                       q,
+                       np.zeros(self.robot_model.model.nv),
+                       np.zeros(self.robot_model.model.nv))
+
+        # send command to lock the robot in current configuration
+        self.command_publisher.q[12:20] = q[12:20]
+        self.command_publisher.q[20:27] = q[32:39]
+        self.command_publisher.tau[12:20] = tau[12:20]
+        self.command_publisher.tau[20:27] = tau[32:39]
+
+    def goto_configuration(self, q):
+        # sync robot model and compute forward kinematics
+        self.robot_model.sync_subscriber()
+        self.robot_model.update_kinematics()
+        # update visualizer if needed
+        if self.visualize:
+            self.robot_model.update_visualizer()
+            self.robot_model.visualize_wrench(self.left_ee_name)
+
+        diff = q - self.robot_model.q
+        # compute end effector velocity
+        v_left = self.robot_model.compute_frame_twist(self.left_ee_name, diff)[0:3]
+        v_right = self.robot_model.compute_frame_twist(self.right_ee_name, diff)[0:3]
+        # limit end effector velocity
+        scaler = np.min([0.3,
+                         self.vlim / (np.linalg.norm(v_left) + 1e-3),
+                         self.vlim / (np.linalg.norm(v_right) + 1e-3)])
+
+        # solve dynamics
+        tau = pin.rnea(self.robot_model.model,
+                       self.robot_model.data,
+                       self.robot_model.q + scaler * diff * self.dt,
+                       self.robot_model.dq,
+                       np.zeros(self.robot_model.model.nv))
+
+        # send the velocity command to the robot
+        self.command_publisher.q[12:20] = self.robot_model.q[12:20] + scaler * diff[12:20] * self.dt
+        self.command_publisher.q[20:27] = self.robot_model.q[32:39] + scaler * diff[32:39] * self.dt
+        self.command_publisher.dq[12:20] = scaler * diff[12:20]
+        self.command_publisher.dq[20:27] = scaler * diff[32:39]
+        self.command_publisher.tau[12:20] = tau[12:20]
+        self.command_publisher.tau[20:27] = tau[32:39]
+
+    def control_step(self):
+        t = time.time()
+        # sync robot model and compute forward kinematics
+        self.robot_model.sync_subscriber()
+        self.robot_model.update_kinematics()
+        # update visualizer if needed
+        if self.visualize:
+            self.robot_model.update_visualizer()
+            self.robot_model.visualize_wrench(self.left_ee_name)
+
+        # update configuration and posture task
+        self.configuration.update(self.robot_model.q)
+        self.posture_task.set_target_from_configuration(self.configuration)
+
+        # solve IK
+        vel = pink.solve_ik(
+            self.configuration,
+            self.tasks,
+            dt=self.dt,
+            solver=self.solver,
+            barriers=self.barriers,
+            safety_break=False
+        )
+
+        # set velocity at non-moving joints to zero
+        vel[0:12] = 0.0
+        vel[20:32] = 0.0
+        vel[39:] = 0.0
+
+        # compute end effector velocity
+        v_left = self.robot_model.compute_frame_twist(self.left_ee_name, vel)[0:3]
+        v_right = self.robot_model.compute_frame_twist(self.right_ee_name, vel)[0:3]
+        # limit end effector velocity
+        scaler = np.min([0.3,
+                         self.vlim / (np.linalg.norm(v_left) + 1e-3),
+                         self.vlim / (np.linalg.norm(v_right) + 1e-3)])
+
+        # solve dynamics
+        tau = pin.rnea(self.robot_model.model,
+                       self.robot_model.data,
+                       self.robot_model.q + scaler * vel * self.dt,
+                       self.robot_model.dq,
+                       np.zeros(self.robot_model.model.nv))
+
+        # send the velocity command to the robot
+        self.command_publisher.q[12:20] = self.robot_model.q[12:20] + scaler * vel[12:20] * self.dt
+        self.command_publisher.q[20:27] = self.robot_model.q[32:39] + scaler * vel[32:39] * self.dt
+        self.command_publisher.dq[12:20] = scaler * vel[12:20]
+        self.command_publisher.dq[20:27] = scaler * vel[32:39]
+        self.command_publisher.tau[12:20] = tau[12:20]
+        self.command_publisher.tau[20:27] = tau[32:39]
+
+        print(f'Time: {time.time() - t:.4f}s')
+
+    def sim_step(self):
+        t = time.time()
+        # update visualizer if needed
+        if self.visualize:
+            self.robot_model.update_visualizer()
+            self.robot_model.visualize_wrench(self.left_ee_name)
+
+        # update configuration and posture task
+        self.configuration.update(self.robot_model.q)
+        self.posture_task.set_target_from_configuration(self.configuration)
+
+        # solve IK
+        vel = pink.solve_ik(
+            self.configuration,
+            self.tasks,
+            dt=self.dt,
+            solver=self.solver,
+            barriers=self.barriers,
+            safety_break=False
+        )
+
+        # set velocity at non-moving joints to zero
+        vel[0:12] = 0.0
+        vel[20:32] = 0.0
+        vel[39:] = 0.0
+
+        # compute end effector velocity
+        v_left = self.robot_model.compute_frame_twist(self.left_ee_name, vel)[0:3]
+        v_right = self.robot_model.compute_frame_twist(self.right_ee_name, vel)[0:3]
+        # limit end effector velocity
+        scaler = np.min([0.3,
+                         self.vlim / (np.linalg.norm(v_left) + 1e-3),
+                         self.vlim / (np.linalg.norm(v_right) + 1e-3)])
+
+        # apply control
+        self.robot_model._q = self.robot_model.q + scaler * vel * self.dt
+        self.robot_model.update_kinematics()
+
+        print(f'Time: {time.time() - t:.4f}s')
+
+    def estop(self):
+        self.command_publisher.estop()
 
 if __name__ == '__main__':
-    # arm
-    controller = ControllerWrapper()
-    print(f"{controller.get_ee_pose('left')=}")
+    # example usage
+    arm_controller = ArmController('assets/h1_2/h1_2.urdf',
+                                   dt=0.01,
+                                   vlim=1.0,
+                                   visualize=True)
 
-    
-    i = 0
-    #print("\n\n\n")
-    controller.set_fingers(np.ones(6), np.ones(6))
-    #Lx, Ly, Lz, Lroll, Lpitch, Lyaw = user_input, 0.2, 0, 0.0, 0.0, 0.0
-    def nothing(x):
-        pass
+    root = tk.Tk()
+    root.title('Arm Controller')
+    root.geometry('600x400')
 
-    # Create an OpenCV window with trackbars for 6 floating point inputs
-    window_name = "ArmPositionControl"
-    cv2.namedWindow(window_name)
+    # pack sliders side by side
+    left_frame = tk.Frame(root)
+    right_frame = tk.Frame(root)  # Commented out for now
+    left_frame.pack(side=tk.LEFT, padx=10, pady=10)
+    right_frame.pack(side=tk.RIGHT, padx=10, pady=10)  # Commented out for now
 
-    cv2.createTrackbar("X", window_name, 500, 1000, nothing)
-    cv2.createTrackbar("Y", window_name, 700, 1000, nothing)
-    cv2.createTrackbar("Z", window_name, 500, 1000, nothing)
-    cv2.createTrackbar("Roll", window_name, 360, 720, nothing)
-    cv2.createTrackbar("Pitch", window_name, 360, 720, nothing)
-    cv2.createTrackbar("Yaw", window_name, 360, 720, nothing)
-    cv2.createTrackbar("Fingers", window_name, 0, 100, nothing)
-    cv2.createTrackbar("Arm", window_name, 0, 1, nothing)
-    cv2.createTrackbar("Publish", window_name, 1, 1, nothing)
+    # left hand sliders
+    slider_lx = tk.Scale(left_frame, label="Left X",
+                         from_=-1.0, to=1.0, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_ly = tk.Scale(left_frame, label="Left Y",
+                         from_=-1.0, to=1.0, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_lz = tk.Scale(left_frame, label="Left Z",
+                         from_=-1.0, to=1.0, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_lr = tk.Scale(left_frame, label="Left Roll",
+                         from_=-np.pi, to=np.pi, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_lp = tk.Scale(left_frame, label="Left Pitch",
+                         from_=-np.pi, to=np.pi, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_lyaw = tk.Scale(left_frame, label="Left Yaw",
+                           from_=-np.pi, to=np.pi, resolution=0.01,
+                           orient=tk.HORIZONTAL, length=250)
+    slider_lx.pack(in_=left_frame, pady=5)
+    slider_ly.pack(in_=left_frame, pady=5)
+    slider_lz.pack(in_=left_frame, pady=5)
+    slider_lr.pack(in_=left_frame, pady=5)
+    slider_lp.pack(in_=left_frame, pady=5)
+    slider_lyaw.pack(in_=left_frame, pady=5)
+
+    # right hand sliders
+    slider_rx = tk.Scale(right_frame, label="Right X",
+                         from_=-1.0, to=1.0, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_ry = tk.Scale(right_frame, label="Right Y",
+                         from_=-1.0, to=1.0, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_rz = tk.Scale(right_frame, label="Right Z",
+                         from_=-1.0, to=1.0, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_rr = tk.Scale(right_frame, label="Right Roll",
+                         from_=-np.pi, to=np.pi, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_rp = tk.Scale(right_frame, label="Right Pitch",
+                         from_=-np.pi, to=np.pi, resolution=0.01,
+                         orient=tk.HORIZONTAL, length=250)
+    slider_ryaw = tk.Scale(right_frame, label="Right Yaw",
+                           from_=-np.pi, to=np.pi, resolution=0.01,
+                           orient=tk.HORIZONTAL, length=250)
+    slider_rx.pack(in_=right_frame, pady=5)
+    slider_ry.pack(in_=right_frame, pady=5)
+    slider_rz.pack(in_=right_frame, pady=5)
+    slider_rr.pack(in_=right_frame, pady=5)
+    slider_rp.pack(in_=right_frame, pady=5)
+    slider_ryaw.pack(in_=right_frame, pady=5)
+
+    # left hand target initialization
+    left_ee_position = arm_controller.left_ee_target_pose[:3]
+    slider_lx.set(left_ee_position[0])
+    slider_ly.set(left_ee_position[1])
+    slider_lz.set(left_ee_position[2])
+    left_ee_rpy = arm_controller.left_ee_target_rpy
+    slider_lr.set(left_ee_rpy[0])
+    slider_lp.set(left_ee_rpy[1])
+    slider_lyaw.set(left_ee_rpy[2])
+
+    # Right hand target initialization
+    right_ee_position = arm_controller.right_ee_target_pose[:3]
+    slider_rx.set(right_ee_position[0])
+    slider_ry.set(right_ee_position[1])
+    slider_rz.set(right_ee_position[2])
+    right_ee_rpy = arm_controller.right_ee_target_rpy
+    slider_rr.set(right_ee_rpy[0])
+    slider_rp.set(right_ee_rpy[1])
+    slider_ryaw.set(right_ee_rpy[2])
+
+    root.update()
+
     while True:
-        # Get values from the trackbars
-        x = (cv2.getTrackbarPos("X", window_name)-500) / 1000.0
-        y = (cv2.getTrackbarPos("Y", window_name)-500) / 1000.0
-        z = (cv2.getTrackbarPos("Z", window_name)-500) / 1000.0
-        roll = np.deg2rad(cv2.getTrackbarPos("Roll", window_name) - 360)
-        pitch = np.deg2rad(cv2.getTrackbarPos("Pitch", window_name) - 360)
-        yaw = np.deg2rad(cv2.getTrackbarPos("Yaw", window_name) - 360)
-        fingers = cv2.getTrackbarPos("Fingers", window_name) / 100.0
+        root.update()
+        # update left hand target
+        lx = slider_lx.get()
+        ly = slider_ly.get()
+        lz = slider_lz.get()
+        lr = slider_lr.get()
+        lp = slider_lp.get()
+        lyaw = slider_lyaw.get()
+        arm_controller.left_ee_target_pose = [lx, ly, lz, lr, lp, lyaw]
 
-        # Print the values for debugging
-        # print(f"X: {x}, Y: {y}, Z: {z}, Roll: {roll}, Pitch: {pitch}, Yaw: {yaw}")
+        # update right hand target
+        rx = slider_rx.get()
+        ry = slider_ry.get()
+        rz = slider_rz.get()
+        rr = slider_rr.get()
+        rp = slider_rp.get()
+        ryaw = slider_ryaw.get()
+        arm_controller.right_ee_target_pose = [rx, ry, rz, rr, rp, ryaw]
 
-        # Set the arm pose using the values
-        if cv2.getTrackbarPos("Publish", window_name) == 1:
-            arm = "left" if cv2.getTrackbarPos("Arm", window_name) == 0 else "right"
-            pose = [x,y,z,roll, pitch, yaw]
-            print(f"going to {arm} {pose=}")
-            controller.set_arm_pose(x, y, z, roll, pitch, yaw, arm=arm)
-            controller.set_fingers(np.ones(6) * fingers, np.ones(6) * fingers)
-            print(f"{controller.get_ee_pose(arm=arm)=}")
-            print(f"{controller.get_frame_wrench('left')=}")
-        #controller.set_arm_velocity(x, y, z, roll, pitch, yaw, arm=arm, blocking=False)
-
-        #print(f"{controller.get_ee_pose('left')=}")
-
-        # controller.set_fingers(np.ones(6), np.ones(6))
-        # Break the loop if 'q' is pressed
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    cv2.destroyAllWindows()
+        arm_controller.control_step()
+        # arm_controller.sim_step()
+        time.sleep(arm_controller.dt)
