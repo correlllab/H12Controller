@@ -80,6 +80,11 @@ class ArmController:
         self._left_arm_action = np.zeros(7)
         self._right_arm_action = np.zeros(7)
 
+        # joint level task for joint-level control (goto_configuration)
+        self.joint_task = pink.PostureTask(
+            cost=30.0
+        )
+
         # self.sphere_model, _, self.collision_model = pin.buildModelsFromUrdf('assets/h1_2/h1_2_sphere.urdf')
         # self.collision_data = pink.utils.process_collision_pairs(
         #     self.sphere_model,
@@ -344,8 +349,8 @@ class ArmController:
                        np.zeros(self.robot_model.model.nv))
 
         # update joint action
-        self._left_arm_action = vel[13:20]
-        self._right_arm_action = vel[32:39]
+        self._left_arm_action = vel[13:20] * self.dt
+        self._right_arm_action = vel[32:39] * self.dt
 
         # send the velocity command to the robot
         self.command_publisher.q[12:20] = self.robot_model.q[12:20] + vel[12:20] * self.dt
@@ -387,8 +392,23 @@ class ArmController:
             self.robot_model.update_visualizer()
             self.robot_model.visualize_wrench(self.left_ee_name)
 
-        # compute joint difference and apply
-        vel = self.limit_joint_vel(q - self.robot_model.q)
+        # use the joint task to solve joint velocity update
+        self.configuration.update(self.robot_model.q)
+        self.joint_task.set_target(q)
+        vel = pink.solve_ik(
+            self.configuration,
+            [self.joint_task],
+            dt=self.dt,
+            solver=self.solver,
+            barriers=self.barriers,
+            safety_break=False
+        )
+        vel[0:12] = 0.0
+        vel[20:32] = 0.0
+        vel[39:] = 0.0
+
+        # apply the control
+        vel = self.limit_joint_vel(vel)
         self.apply_joint_vel(vel)
 
     def solve_ik(self):
