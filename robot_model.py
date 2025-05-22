@@ -9,6 +9,10 @@ import meshcat.geometry as geo
 import meshcat.transformations as tf
 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from channel_interface import StateSubscriber
 
 class RobotModel:

@@ -9,6 +9,9 @@ import pinocchio as pin
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from unitree_sdk2py.utils.thread import RecurrentThread
 
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from robot_model import RobotModel
 from channel_interface import CommandPublisher
 
