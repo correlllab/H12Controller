@@ -88,17 +88,18 @@ class ArmController:
             cost=30.0
         )
 
+        root_path = os.path.dirname(os.path.abspath(__file__))
         # self.sphere_model, _, self.collision_model = pin.buildModelsFromUrdf('assets/h1_2/h1_2_sphere.urdf')
         # self.collision_data = pink.utils.process_collision_pairs(
         #     self.sphere_model,
         #     self.collision_model,
-        #     'assets/h1_2/h1_2_sphere_collision.srdf',
+        #     f'{root_path}/assets/h1_2/h1_2_sphere_collision.srdf',
         # )
         self.collision_model = self.robot_model.collision_model
         self.collision_data = pink.utils.process_collision_pairs(
             self.robot_model.model,
             self.robot_model.collision_model,
-            'assets/h1_2/h1_2_collision.srdf',
+            f'{root_path}/assets/h1_2/h1_2_collision.srdf',
         )
 
         # configuration trakcing robot states
