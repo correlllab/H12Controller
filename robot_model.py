@@ -16,7 +16,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from channel_interface import StateSubscriber
 
 class RobotModel:
-    def __init__(self, filename: str):
+    def __init__(self, filename: str, frozen_joints=None):
         # break file name
         ext = os.path.splitext(filename)[1]
         dirs = os.path.dirname(filename)
@@ -44,6 +44,28 @@ class RobotModel:
         pin.forwardKinematics(self.model, self.data, self.q)
         pin.updateFramePlacements(self.model, self.data)
 
+
+        # placeholder mask for reduced model
+        self.reduced_mask = np.ones(self.model.nq, dtype=bool)
+        # create a map of joint names, joint ids, and q ids
+        self.joint_ids = {}
+        self.joint_q_ids = {}
+        for joint_id in range(self.model.njoints):
+            joint_name = self.model.names[joint_id]
+            self.joint_ids[joint_name] = joint_id
+            self.joint_q_ids[joint_name] = self.model.joints[joint_id].idx_q
+
+    def init_reduced_model(self, frozen_joints):
+        frozen_ids = [self.joint_ids[joint_name] for joint_name in frozen_joints]
+        frozen_q_ids = [self.joint_q_ids[joint_name] for joint_name in frozen_joints]
+        # create a reduced model
+        self.reduced_model = pin.buildReducedModel(self.model,
+                                                   frozen_ids,
+                                                   self.zero_q)
+        self.reduced_data = self.reduced_model.createData()
+        # set the reduced mask
+        self.reduced_mask[frozen_q_ids] = False
+
     @property
     def q(self):
         return np.copy(self._q)
@@ -59,6 +81,22 @@ class RobotModel:
     @property
     def zero_q(self):
         return np.zeros(self.model.nq)
+
+    @property
+    def q_reduced(self):
+        return np.copy(self._q[self.reduced_mask])
+
+    @property
+    def dq_reduced(self):
+        return np.copy(self._dq[self.reduced_mask])
+
+    @property
+    def tau_reduced(self):
+        return np.copy(self._tau[self.reduced_mask])
+
+    @property
+    def zero_q_reduced(self):
+        return np.copy(self.zero_q[self.reduced_mask])
 
     def init_visualizer(self):
         try:

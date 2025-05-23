@@ -12,6 +12,7 @@ from unitree_sdk2py.utils.thread import RecurrentThread
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+import utility.joint_definition as joint_definition
 from robot_model import RobotModel
 from channel_interface import CommandPublisher
 
@@ -32,11 +33,15 @@ class ArmController:
         self.robot_model.sync_subscriber()
         self.robot_model.update_kinematics()
 
-        # initialize command publisher
+        # define enabled ids and frozen ids
+        motor_ids = np.array([i for i in range(13, 27)])
+        enabled_joints = joint_definition.ENABLED_JOINTS
+        enabled_q_ids = [self.robot_model.joint_q_ids[name] for name in enabled_joints]
+        frozen_joints = set(joint_definition.ALL_JOINTS) - set(enabled_joints)
+        self.robot_model.init_reduced_model(frozen_joints)
+
+        # initialize command publisher for upper body motors
         self.command_publisher = CommandPublisher()
-        # enable upper body motors and set initial q & gain
-        motor_ids = np.array([i for i in range(12, 27)])
-        init_q = self.robot_model.q[np.array([i for i in range(12, 20)] + [i for i in range(32, 39)])]
         # gain for arms
         self.command_publisher.kp[13:16] = 180.0
         self.command_publisher.kd[13:16] = 3.0
@@ -52,9 +57,7 @@ class ArmController:
         self.command_publisher.kd[18:20] = 2.0
         self.command_publisher.kp[25:27] = 50.0
         self.command_publisher.kd[25:27] = 2.0
-        # gain for torso
-        self.command_publisher.kp[12] = 100.0
-        self.command_publisher.kd[12] = 2.0
+        init_q = self.robot_model.q[enabled_q_ids]
         self.command_publisher.enable_motor(motor_ids, init_q)
         self.command_publisher.start_publisher()
 
@@ -108,7 +111,12 @@ class ArmController:
             self.robot_model.data,
             self.robot_model.zero_q,
             # collision_model=self.collision_model,
-            # collision_data=self.collision_data,
+            # collision_data=self.collision_data
+        )
+        self.reduced_configuration = pink.Configuration(
+            self.robot_model.reduced_model,
+            self.robot_model.reduced_data,
+            self.robot_model.zero_q_reduced,
         )
 
         # collision barriers
@@ -357,12 +365,9 @@ class ArmController:
         self._right_arm_action = vel[32:39] * self.dt
 
         # send the velocity command to the robot
-        self.command_publisher.q[12:20] = self.robot_model.q[12:20] + vel[12:20] * self.dt
-        self.command_publisher.q[20:27] = self.robot_model.q[32:39] + vel[32:39] * self.dt
-        self.command_publisher.dq[12:20] = vel[12:20]
-        self.command_publisher.dq[20:27] = vel[32:39]
-        self.command_publisher.tau[12:20] = tau[12:20]
-        self.command_publisher.tau[20:27] = tau[32:39]
+        self.command_publisher.q = self.robot_model.q + vel * self.dt
+        self.command_publisher.dq = vel
+        self.command_publisher.tau = tau
 
     def lock_configuration(self, q):
         # sync robot model and compute forward kinematics
@@ -382,10 +387,9 @@ class ArmController:
                        np.zeros(self.robot_model.model.nv))
 
         # send command to lock the robot in current configuration
-        self.command_publisher.q[12:20] = q[12:20]
-        self.command_publisher.q[20:27] = q[32:39]
-        self.command_publisher.tau[12:20] = tau[12:20]
-        self.command_publisher.tau[20:27] = tau[32:39]
+        self.command_publisher.q = q
+        self.command_publisher.dq = np.zeros(self.robot_model.model.nv)
+        self.command_publisher.tau = tau
 
     def goto_configuration(self, q):
         # sync robot model and compute forward kinematics
@@ -407,9 +411,6 @@ class ArmController:
             barriers=self.barriers,
             safety_break=False
         )
-        vel[0:12] = 0.0
-        vel[20:32] = 0.0
-        vel[39:] = 0.0
 
         # apply the control
         vel = self.limit_joint_vel(vel)
@@ -430,16 +431,33 @@ class ArmController:
             safety_break=False
         )
 
-        # set velocity at non-moving joints to zero
-        vel[0:12] = 0.0
-        vel[20:32] = 0.0
-        vel[39:] = 0.0
-
         vel = self.limit_joint_vel(vel)
 
         return vel
 
-    def control_step(self):
+    def solve_reduced_ik(self):
+        # update configuration and posture task
+        self.reduced_configuration.update(self.robot_model.q_reduced)
+        self.posture_task.set_target_from_configuration(self.reduced_configuration)
+
+        # solve IK
+        vel = pink.solve_ik(
+            self.reduced_configuration,
+            self.tasks,
+            dt=self.dt,
+            solver=self.solver,
+            barriers=self.barriers,
+            safety_break=False
+        )
+
+        vel_full = np.zeros(self.robot_model.model.nv)
+        vel_full[self.robot_model.reduced_mask] = vel
+
+        vel_full = self.limit_joint_vel(vel_full)
+
+        return vel_full
+
+    def control_full_body_step(self):
         t = time.time()
         # sync robot model and compute forward kinematics
         self.robot_model.sync_subscriber()
@@ -455,7 +473,23 @@ class ArmController:
 
         print(f'Time: {time.time() - t:.4f}s')
 
-    def sim_step(self):
+    def control_dual_arm_step(self):
+        t = time.time()
+        # sync robot model and compute forward kinematics
+        self.robot_model.sync_subscriber()
+        self.robot_model.update_kinematics()
+        # update visualizer if needed
+        if self.visualize:
+            self.robot_model.update_visualizer()
+            self.robot_model.visualize_wrench(self.left_ee_name)
+
+        # solve IK and apply the control
+        vel = self.solve_reduced_ik()
+        self.apply_joint_vel(vel)
+
+        print(f'Time: {time.time() - t:.4f}s')
+
+    def sim_full_body_step(self):
         t = time.time()
         # update visualizer if needed
         if self.visualize:
@@ -468,6 +502,24 @@ class ArmController:
 
         # solve IK and apply the control
         vel = self.solve_ik()
+        self.robot_model._q = self.robot_model.q + vel * self.dt
+        self.robot_model.update_kinematics()
+
+        print(f'Time: {time.time() - t:.4f}s')
+
+    def sim_dual_arm_step(self):
+        t = time.time()
+        # update visualizer if needed
+        if self.visualize:
+            self.robot_model.update_visualizer()
+            self.robot_model.visualize_wrench(self.left_ee_name)
+
+        # update configuration and posture task
+        self.reduced_configuration.update(self.robot_model.q[self.robot_model.reduced_mask])
+        self.posture_task.set_target_from_configuration(self.reduced_configuration)
+
+        # solve IK and apply the control
+        vel = self.solve_reduced_ik()
         self.robot_model._q = self.robot_model.q + vel * self.dt
         self.robot_model.update_kinematics()
 
@@ -587,6 +639,6 @@ if __name__ == '__main__':
         ryaw = slider_ryaw.get()
         arm_controller.right_ee_target_pose = [rx, ry, rz, rr, rp, ryaw]
 
-        arm_controller.control_step()
-        # arm_controller.sim_step()
+        # arm_controller.control_dual_arm_step()
+        arm_controller.sim_dual_arm_step()
         time.sleep(arm_controller.dt)
