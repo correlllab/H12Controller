@@ -14,6 +14,7 @@ dependencies:
     - meshio
     - open3d
     - meshcat
+    - meshcat-shapes
     - pyvista
     - pyquaternion
     - opencv-python

@@ -5,6 +5,7 @@ import pinocchio as pin
 from pinocchio.visualize import MeshcatVisualizer
 
 import meshcat
+import meshcat_shapes
 import meshcat.geometry as geo
 import meshcat.transformations as tf
 
@@ -104,6 +105,10 @@ class RobotModel:
                                          copy_models=False, data=self.data)
             self.viz.initViewer(open=True)
             self.viz.loadViewerModel('unitree_h1_2')
+            meshcat_shapes.frame(self.viz.viewer['lidar_frame'], opacity=1.0)
+            self.viz.viewer['lidar_frame'].set_transform(
+                self.get_frame_transformation('lidar_link')
+            )
         except ImportError as err:
             print('ImportError: MeshcatVisualizer requires the meshcat package.')
             print(err)
