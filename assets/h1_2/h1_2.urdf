@@ -863,6 +863,14 @@
     <child link="lidar_link"/>
   </joint>
 
+  <!-- Head Camera -->
+  <link name="head_camera_link"></link>
+  <joint name="head_camera_joint" type="fixed">
+    <origin xyz="0.11019 0.032508 0.68918" rpy="0 0.85811 0"/>
+    <parent link="torso_link"/>
+    <child link="head_camera_link"/>
+  </joint>
+
   <!-- L Gripper -->
   <joint name="L_base_link_joint" type="fixed">
     <origin xyz="0.054 0 0" rpy="0 0 1.5707963267948966192313216916398"/>
