@@ -2,7 +2,7 @@ import os
 import time
 import numpy as np
 import pinocchio as pin
-from pinocchio.visualize import MeshcatVisualizer
+#from pinocchio.visualize import MeshcatVisualizer
 
 import meshcat
 import meshcat_shapes
@@ -259,7 +259,7 @@ if __name__ == '__main__':
     # robot_model = RobotModel('assets/h1_2/h1_2_sphere.urdf')
     robot_model = RobotModel('assets/h1_2/h1_2.urdf')
     # robot_model = RobotModel('assets/h1_2/h1_2.xml')
-    robot_model.init_visualizer()
+    #robot_model.init_visualizer()
     robot_model.init_subscriber()
 
     while True:

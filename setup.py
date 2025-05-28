@@ -2,14 +2,14 @@
 import setuptools
 
 setuptools.setup(
-    name="h12-controller-wrapper",                 # PyPI-friendly name
+    name="h12-controller",                 # PyPI-friendly name
     version="0.1.0",                               # bump on each release
     author="Your Name",
     author_email="you@example.com",
     description="Python wrapper for H1-2 robot controller",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/H12ControllerWrapper",
+    url="https://github.com/yourusername/H12Controller",
     packages=setuptools.find_packages(exclude=["tests*", "assets*", "data*"]),
     python_requires=">=3.7",
     install_requires=[
@@ -20,7 +20,7 @@ setuptools.setup(
     ],
     include_package_data=True,  # so MANIFEST.in is respected
     package_data={
-        "h12_controller_wrapper": [
+        "h12_controller": [
             "../assets/*",         # adjust globs to your structure
             "../data/*.npy",
         ],
