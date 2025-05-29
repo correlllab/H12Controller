@@ -34,7 +34,7 @@ class ArmController:
         self.robot_model.update_kinematics()
 
         # define enabled ids and frozen ids
-        motor_ids = np.array([i for i in range(13, 27)])
+        motor_ids = np.array([i for i in range(13, 20)])
         enabled_joints = joint_definition.ENABLED_JOINTS
         enabled_q_ids = [self.robot_model.joint_q_ids[name] for name in enabled_joints]
         frozen_joints = set(joint_definition.ALL_JOINTS) - set(enabled_joints)
@@ -58,7 +58,6 @@ class ArmController:
         self.command_publisher.kp[25:27] = 50.0
         self.command_publisher.kd[25:27] = 2.0
         init_q = self.robot_model.q[enabled_q_ids]
-        print(enabled_q_ids)
         self.command_publisher.enable_motor(motor_ids, init_q)
         self.command_publisher.start_publisher()
 
@@ -640,6 +639,6 @@ if __name__ == '__main__':
         ryaw = slider_ryaw.get()
         arm_controller.right_ee_target_pose = [rx, ry, rz, rr, rp, ryaw]
 
-        # arm_controller.control_dual_arm_step()
-        arm_controller.sim_dual_arm_step()
+        arm_controller.control_dual_arm_step()
+        # arm_controller.sim_dual_arm_step()
         time.sleep(arm_controller.dt)
