@@ -1,3 +1,3 @@
 include README.md LICENSE
-recursive-include h12_controller_wrapper/assets *
-recursive-include h12_controller_wrapper/data *.npy
+recursive-include h12_controller/assets *
+recursive-include h12_controller/data *.npy

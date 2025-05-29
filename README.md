@@ -16,14 +16,14 @@ You can control the position and orientation of the two end-effectors.
 
 ## Files
 
-- `robot_model.py` tracks robot states and provides useful functions for kinematics, Jacobians, etc., using Pinocchio.
-- `controller.py` solves inverse kinematics and provides functions to control end-effectors and query their states.
-- `channel_interface.py` implements a publisher for motor commands and a subscriber for motor states using the Unitree Python SDK.
-  In the future, this part should be implemented using the Unitree ROS2 SDK for ROS2 integration.
 - `archive/` contains the old controller implementation.
 - `assets/` contains robot description files.
-- `utility/` contains useful scripts to inspect robot descriptions, process collision pairs, and lock the robot configuration.
 - `data/` contains data such as joint configurations.
+- `h12_controller/`:
+    - `utility/` contains useful scripts to inspect robot descriptions, process collision pairs, and lock the robot configuration.
+    - `robot_model.py` tracks robot states and provides useful functions for kinematics, Jacobians, etc., using Pinocchio.
+    - `controller.py` solves inverse kinematics and provides functions to control end-effectors and query their states.
+    - `channel_interface.py` implements a publisher for motor commands and a subscriber for motor states using the Unitree Python SDK.
 
 ## TODO
 

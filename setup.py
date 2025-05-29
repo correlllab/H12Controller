@@ -6,7 +6,7 @@ setuptools.setup(
     version="0.1.0",                               # bump on each release
     author="Your Name",
     author_email="you@example.com",
-    description="Python wrapper for H1-2 robot controller",
+    description="Python implementation of H1-2 robot controller",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/yourusername/H12Controller",
