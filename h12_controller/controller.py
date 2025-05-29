@@ -58,6 +58,7 @@ class ArmController:
         self.command_publisher.kp[25:27] = 50.0
         self.command_publisher.kd[25:27] = 2.0
         init_q = self.robot_model.q[enabled_q_ids]
+        print(enabled_q_ids)
         self.command_publisher.enable_motor(motor_ids, init_q)
         self.command_publisher.start_publisher()
 
@@ -98,12 +99,12 @@ class ArmController:
         #     self.collision_model,
         #     f'{root_path}/assets/h1_2/h1_2_sphere_collision.srdf',
         # )
-        self.collision_model = self.robot_model.collision_model
-        self.collision_data = pink.utils.process_collision_pairs(
-            self.robot_model.model,
-            self.robot_model.collision_model,
-            f'{root_path}/assets/h1_2/h1_2_collision.srdf',
-        )
+        # self.collision_model = self.robot_model.collision_model
+        # self.collision_data = pink.utils.process_collision_pairs(
+        #     self.robot_model.model,
+        #     self.robot_model.collision_model,
+        #     f'{root_path}/assets/h1_2/h1_2_collision.srdf',
+        # )
 
         # configuration trakcing robot states
         self.configuration = pink.Configuration(
@@ -119,21 +120,21 @@ class ArmController:
             self.robot_model.zero_q_reduced,
         )
 
-        # collision barriers
-        self.collision_barrier = pink.barriers.SelfCollisionBarrier(
-            n_collision_pairs=len(self.collision_model.collisionPairs),
-            gain=20.0,
-            safe_displacement_gain=1.0,
-            d_min=0.05,
-        )
+        # # collision barriers
+        # self.collision_barrier = pink.barriers.SelfCollisionBarrier(
+        #     n_collision_pairs=len(self.collision_model.collisionPairs),
+        #     gain=20.0,
+        #     safe_displacement_gain=1.0,
+        #     d_min=0.05,
+        # )
 
-        # spherical collision barriers
-        self.ee_barrier = pink.barriers.BodySphericalBarrier(
-            ('left_wrist_yaw_link', 'right_wrist_yaw_link'),
-            d_min=0.2,
-            gain = 100.0,
-            safe_displacement_gain=1.0
-        )
+        # # spherical collision barriers
+        # self.ee_barrier = pink.barriers.BodySphericalBarrier(
+        #     ('left_wrist_yaw_link', 'right_wrist_yaw_link'),
+        #     d_min=0.2,
+        #     gain = 100.0,
+        #     safe_displacement_gain=1.0
+        # )
 
         # set initial target for all tasks
         self.tasks = [self.left_ee_task, self.right_ee_task, self.posture_task]
