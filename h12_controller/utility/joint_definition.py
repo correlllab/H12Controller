@@ -61,12 +61,12 @@ ENABLED_JOINTS = [
     'left_elbow_roll_joint',
     'left_wrist_pitch_joint',
     'left_wrist_yaw_joint',
-    # # right arm
-    # 'right_shoulder_pitch_joint',
-    # 'right_shoulder_roll_joint',
-    # 'right_shoulder_yaw_joint',
-    # 'right_elbow_pitch_joint',
-    # 'right_elbow_roll_joint',
-    # 'right_wrist_pitch_joint',
-    # 'right_wrist_yaw_joint'
+    # right arm
+    'right_shoulder_pitch_joint',
+    'right_shoulder_roll_joint',
+    'right_shoulder_yaw_joint',
+    'right_elbow_pitch_joint',
+    'right_elbow_roll_joint',
+    'right_wrist_pitch_joint',
+    'right_wrist_yaw_joint'
 ]

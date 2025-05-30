@@ -34,7 +34,7 @@ class ArmController:
         self.robot_model.update_kinematics()
 
         # define enabled ids and frozen ids
-        motor_ids = np.array([i for i in range(13, 20)])
+        motor_ids = np.array([i for i in range(13, 27)])
         enabled_joints = joint_definition.ENABLED_JOINTS
         enabled_q_ids = [self.robot_model.joint_q_ids[name] for name in enabled_joints]
         frozen_joints = set(joint_definition.ALL_JOINTS) - set(enabled_joints)
@@ -91,7 +91,7 @@ class ArmController:
             cost=30.0
         )
 
-        root_path = os.path.dirname(os.path.abspath(__file__))
+        # root_path = os.path.dirname(os.path.abspath(__file__))
         # self.sphere_model, _, self.collision_model = pin.buildModelsFromUrdf('assets/h1_2/h1_2_sphere.urdf')
         # self.collision_data = pink.utils.process_collision_pairs(
         #     self.sphere_model,
@@ -458,7 +458,7 @@ class ArmController:
         return vel_full
 
     def control_full_body_step(self):
-        t = time.time()
+        # t = time.time()
         # sync robot model and compute forward kinematics
         self.robot_model.sync_subscriber()
         self.robot_model.update_kinematics()
@@ -471,10 +471,10 @@ class ArmController:
         vel = self.solve_ik()
         self.apply_joint_vel(vel)
 
-        print(f'Time: {time.time() - t:.4f}s')
+        # print(f'Time: {time.time() - t:.4f}s')
 
     def control_dual_arm_step(self):
-        t = time.time()
+        # t = time.time()
         # sync robot model and compute forward kinematics
         self.robot_model.sync_subscriber()
         self.robot_model.update_kinematics()
@@ -487,10 +487,10 @@ class ArmController:
         vel = self.solve_reduced_ik()
         self.apply_joint_vel(vel)
 
-        print(f'Time: {time.time() - t:.4f}s')
+        # print(f'Time: {time.time() - t:.4f}s')
 
     def sim_full_body_step(self):
-        t = time.time()
+        # t = time.time()
         # update visualizer if needed
         if self.visualize:
             self.robot_model.update_visualizer()
@@ -505,10 +505,10 @@ class ArmController:
         self.robot_model._q = self.robot_model.q + vel * self.dt
         self.robot_model.update_kinematics()
 
-        print(f'Time: {time.time() - t:.4f}s')
+        # print(f'Time: {time.time() - t:.4f}s')
 
     def sim_dual_arm_step(self):
-        t = time.time()
+        # t = time.time()
         # update visualizer if needed
         if self.visualize:
             self.robot_model.update_visualizer()
@@ -523,7 +523,7 @@ class ArmController:
         self.robot_model._q = self.robot_model.q + vel * self.dt
         self.robot_model.update_kinematics()
 
-        print(f'Time: {time.time() - t:.4f}s')
+        # print(f'Time: {time.time() - t:.4f}s')
 
     def estop(self):
         self.command_publisher.estop()
