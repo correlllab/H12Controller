@@ -365,9 +365,12 @@ class ArmController:
         self._right_arm_action = vel[32:39] * self.dt
 
         # send the velocity command to the robot
-        self.command_publisher.q = self.robot_model.q + vel * self.dt
-        self.command_publisher.dq = vel
-        self.command_publisher.tau = tau
+        self.command_publisher.q[13:20] = (self.robot_model.q + vel * self.dt)[13:20]
+        self.command_publisher.q[20:27] = (self.robot_model.q + vel * self.dt)[32:39]
+        self.command_publisher.dq[13:20] = vel[13:20]
+        self.command_publisher.dq[20:27] = vel[32:39]
+        self.command_publisher.tau[13:20] = tau[13:20]
+        self.command_publisher.tau[20:27] = tau[32:39]
 
     def lock_configuration(self, q):
         # sync robot model and compute forward kinematics
