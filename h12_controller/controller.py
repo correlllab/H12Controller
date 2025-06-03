@@ -91,7 +91,7 @@ class ArmController:
             cost=30.0
         )
 
-        # root_path = os.path.dirname(os.path.abspath(__file__))
+        # root_path = os.path.dirname(os.path.join(os.path.dirname(__file__), ".."))
         # self.sphere_model, _, self.collision_model = pin.buildModelsFromUrdf('assets/h1_2/h1_2_sphere.urdf')
         # self.collision_data = pink.utils.process_collision_pairs(
         #     self.sphere_model,
