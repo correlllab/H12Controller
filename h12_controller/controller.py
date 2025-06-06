@@ -12,7 +12,7 @@ from unitree_sdk2py.utils.thread import RecurrentThread
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-import utility.joint_definition as joint_definition
+from utility.joint_definition import ENABLED_JOINTS
 from robot_model import RobotModel
 from channel_interface import CommandPublisher
 
@@ -35,10 +35,7 @@ class ArmController:
 
         # define enabled ids and frozen ids
         motor_ids = np.array([i for i in range(13, 27)])
-        enabled_joints = joint_definition.ENABLED_JOINTS
-        enabled_q_ids = [self.robot_model.joint_q_ids[name] for name in enabled_joints]
-        frozen_joints = set(joint_definition.ALL_JOINTS) - set(enabled_joints)
-        self.robot_model.init_reduced_model(frozen_joints)
+        self.robot_model.init_reduced_model(ENABLED_JOINTS)
 
         # initialize command publisher for upper body motors
         self.command_publisher = CommandPublisher()
@@ -57,7 +54,7 @@ class ArmController:
         self.command_publisher.kd[18:20] = 2.0
         self.command_publisher.kp[25:27] = 50.0
         self.command_publisher.kd[25:27] = 2.0
-        init_q = self.robot_model.q[enabled_q_ids]
+        init_q = self.robot_model.q_reduced
         self.command_publisher.enable_motor(motor_ids, init_q)
         self.command_publisher.start_publisher()
 
@@ -365,12 +362,9 @@ class ArmController:
         self._right_arm_action = vel[32:39] * self.dt
 
         # send the velocity command to the robot
-        self.command_publisher.q[13:20] = (self.robot_model.q + vel * self.dt)[13:20]
-        self.command_publisher.q[20:27] = (self.robot_model.q + vel * self.dt)[32:39]
-        self.command_publisher.dq[13:20] = vel[13:20]
-        self.command_publisher.dq[20:27] = vel[32:39]
-        self.command_publisher.tau[13:20] = tau[13:20]
-        self.command_publisher.tau[20:27] = tau[32:39]
+        self.command_publisher.q = (self.robot_model.q + vel * self.dt)[self.robot_model.body_q_ids]
+        self.command_publisher.dq = vel[self.robot_model.body_q_ids]
+        self.command_publisher.tau = tau[self.robot_model.body_q_ids]
 
     def lock_configuration(self, q):
         # sync robot model and compute forward kinematics
@@ -642,6 +636,6 @@ if __name__ == '__main__':
         ryaw = slider_ryaw.get()
         arm_controller.right_ee_target_pose = [rx, ry, rz, rr, rp, ryaw]
 
-        arm_controller.control_dual_arm_step()
-        # arm_controller.sim_dual_arm_step()
+        # arm_controller.control_dual_arm_step()
+        arm_controller.sim_dual_arm_step()
         time.sleep(arm_controller.dt)

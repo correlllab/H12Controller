@@ -13,10 +13,6 @@ setuptools.setup(
     packages=setuptools.find_packages(exclude=["tests*", "assets*", "data*"]),
     python_requires=">=3.7",
     install_requires=[
-        "numpy>=1.19",
-        "torch>=1.8",
-        "open3d>=0.15",
-        # add whatever else you need
     ],
     include_package_data=True,  # so MANIFEST.in is respected
     package_data={

@@ -15,9 +15,10 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from channel_interface import StateSubscriber
+from utility.joint_definition import ALL_JOINTS, BODY_JOINTS
 
 class RobotModel:
-    def __init__(self, filename: str, frozen_joints=None):
+    def __init__(self, filename: str):
         # break file name
         ext = os.path.splitext(filename)[1]
         dirs = os.path.dirname(filename)
@@ -45,9 +46,6 @@ class RobotModel:
         pin.forwardKinematics(self.model, self.data, self.q)
         pin.updateFramePlacements(self.model, self.data)
 
-
-        # placeholder mask for reduced model
-        self.reduced_mask = np.ones(self.model.nq, dtype=bool)
         # create a map of joint names, joint ids, and q ids
         self.joint_ids = {}
         self.joint_q_ids = {}
@@ -55,8 +53,15 @@ class RobotModel:
             joint_name = self.model.names[joint_id]
             self.joint_ids[joint_name] = joint_id
             self.joint_q_ids[joint_name] = self.model.joints[joint_id].idx_q
+        # create mask for main body joints
+        self.body_q_ids = [self.joint_q_ids[joint_name] for joint_name in BODY_JOINTS]
 
-    def init_reduced_model(self, frozen_joints):
+        # placeholder variables for reduced model
+        self.reduced_mask = np.ones(self.model.nq, dtype=bool)
+        self.reduced_q_ids = list(self.body_q_ids)
+
+    def init_reduced_model(self, enabled_joints):
+        frozen_joints = set(ALL_JOINTS) - set(enabled_joints)
         frozen_ids = [self.joint_ids[joint_name] for joint_name in frozen_joints]
         frozen_q_ids = [self.joint_q_ids[joint_name] for joint_name in frozen_joints]
         # create a reduced model
@@ -66,6 +71,8 @@ class RobotModel:
         self.reduced_data = self.reduced_model.createData()
         # set the reduced mask
         self.reduced_mask[frozen_q_ids] = False
+        # update the reduced q ids
+        self.reduced_q_ids = [self.joint_q_ids[joint_name] for joint_name in enabled_joints]
 
     @property
     def q(self):
@@ -179,12 +186,9 @@ class RobotModel:
 
     def sync_subscriber(self):
         # update the q, dq, tau
-        self._q[0:20] = self.state_subscriber.q[0:20]
-        self._q[32:39] = self.state_subscriber.q[20:27]
-        self._dq[0:20] = self.state_subscriber.dq[0:20]
-        self._dq[32:39] = self.state_subscriber.dq[20:27]
-        self._tau[0:20] = self.state_subscriber.tau[0:20]
-        self._tau[32:39] = self.state_subscriber.tau[20:27]
+        self._q[self.body_q_ids] = self.state_subscriber.q
+        self._dq[self.body_q_ids] = self.state_subscriber.dq
+        self._tau[self.body_q_ids] = self.state_subscriber.tau
 
     def update_kinematics(self):
         # udpate data with the current joint positions
@@ -265,9 +269,9 @@ if __name__ == '__main__':
     # a simple shadowing program
     ChannelFactoryInitialize(id=0)
     # Example usage
-    # robot_model = RobotModel('assets/h1_2/h1_2_sphere.urdf')
-    robot_model = RobotModel('assets/h1_2/h1_2.urdf')
-    # robot_model = RobotModel('assets/h1_2/h1_2.xml')
+    # robot_model = RobotModel('./assets/h1_2/h1_2_sphere.urdf')
+    robot_model = RobotModel('./assets/h1_2/h1_2.urdf')
+    # robot_model = RobotModel('./assets/h1_2/h1_2.xml')
     robot_model.init_visualizer()
     robot_model.init_subscriber()
 
@@ -275,5 +279,4 @@ if __name__ == '__main__':
         robot_model.sync_subscriber()
         robot_model.update_kinematics()
         robot_model.update_visualizer()
-        robot_model.visualize_wrench('left_wrist_yaw_link')
         time.sleep(0.01)
