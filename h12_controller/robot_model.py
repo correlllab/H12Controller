@@ -46,6 +46,8 @@ class RobotModel:
         pin.forwardKinematics(self.model, self.data, self.q)
         pin.updateFramePlacements(self.model, self.data)
 
+        # placeholder mask for reduced model
+        self.reduced_mask = np.ones(self.model.nq, dtype=bool)
         # create a map of joint names, joint ids, and q ids
         self.joint_ids = {}
         self.joint_q_ids = {}
@@ -55,10 +57,6 @@ class RobotModel:
             self.joint_q_ids[joint_name] = self.model.joints[joint_id].idx_q
         # create mask for main body joints
         self.body_q_ids = [self.joint_q_ids[joint_name] for joint_name in BODY_JOINTS]
-
-        # placeholder variables for reduced model
-        self.reduced_mask = np.ones(self.model.nq, dtype=bool)
-        self.reduced_q_ids = list(self.body_q_ids)
 
     def init_reduced_model(self, enabled_joints):
         frozen_joints = set(ALL_JOINTS) - set(enabled_joints)

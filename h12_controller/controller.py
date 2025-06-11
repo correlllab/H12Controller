@@ -235,6 +235,7 @@ class ArmController:
     left_ee_target_rotation: rotation matrix of the left end effector target
     left_ee_target_rpy: roll, pitch, yaw of the left end effector target
     left_ee_target_pose: pose of the left end effector target (x, y, z, roll, pitch, yaw)
+    left_ee_error: error between the current left end effector and the target
     '''
     @property
     def left_ee_target_transformation(self):
@@ -243,7 +244,7 @@ class ArmController:
     @left_ee_target_transformation.setter
     def left_ee_target_transformation(self, transformation):
         assert(transformation.shape == (4, 4)), 'Transformation should be a 4x4 matrix.'
-        self.left_ee_task.transform_target_to_world.np = transformation
+        self.left_ee_task.transform_target_to_world = pin.SE3(transformation)
 
     @property
     def left_ee_target_position(self):
@@ -283,6 +284,10 @@ class ArmController:
         self.left_ee_target_position = pose[:3]
         self.left_ee_target_rpy = pose[3:]
 
+    @property
+    def left_ee_error(self):
+        return self.left_ee_task.compute_error(self.configuration)
+
     '''
     right end effector target properties
     right_ee_target_transformation: transformation matrix of the right end effector target
@@ -290,6 +295,7 @@ class ArmController:
     right_ee_target_rotation: rotation matrix of the right end effector target
     right_ee_target_rpy: roll, pitch, yaw of the right end effector target
     right_ee_target_pose: pose of the right end effector target (x, y, z, roll, pitch, yaw)
+    right_ee_error: error between the current right end effector and the target
     '''
     @property
     def right_ee_target_transformation(self):
@@ -298,7 +304,7 @@ class ArmController:
     @right_ee_target_transformation.setter
     def right_ee_target_transformation(self, transformation):
         assert(transformation.shape == (4, 4)), 'Transformation should be a 4x4 matrix.'
-        self.right_ee_task.transform_target_to_world.np = transformation
+        self.right_ee_task.transform_target_to_world = pin.SE3(transformation)
 
     @property
     def right_ee_target_position(self):
@@ -338,6 +344,10 @@ class ArmController:
         self.right_ee_target_position = pose[:3]
         self.right_ee_target_rpy = pose[3:]
 
+    @property
+    def right_ee_error(self):
+        return self.right_ee_task.compute_error(self.configuration)
+
     def limit_joint_vel(self, vel):
         # compute end effector velocity
         v_left = self.robot_model.compute_frame_twist(self.left_ee_name, vel)[0:3]
@@ -375,8 +385,11 @@ class ArmController:
             self.robot_model.update_visualizer()
             self.robot_model.visualize_wrench(self.left_ee_name)
 
+        # update configuration
+        self.configuration.update(self.robot_model.q)
+        self.reduced_configuration.update(self.robot_model.q_reduced)
+
         # compute tau and enforce same q
-        # solve dynamics
         tau = pin.rnea(self.robot_model.model,
                        self.robot_model.data,
                        q,
@@ -397,8 +410,11 @@ class ArmController:
             self.robot_model.update_visualizer()
             self.robot_model.visualize_wrench(self.left_ee_name)
 
-        # use the joint task to solve joint velocity update
+        # update configuration
         self.configuration.update(self.robot_model.q)
+        self.reduced_configuration.update(self.robot_model.q_reduced)
+
+        # use the joint task to solve joint velocity update
         self.joint_task.set_target(q)
         vel = pink.solve_ik(
             self.configuration,
@@ -414,8 +430,7 @@ class ArmController:
         self.apply_joint_vel(vel)
 
     def solve_ik(self):
-        # update configuration and posture task
-        self.configuration.update(self.robot_model.q)
+        # update posture task
         self.posture_task.set_target_from_configuration(self.configuration)
 
         # solve IK
@@ -433,8 +448,7 @@ class ArmController:
         return vel
 
     def solve_reduced_ik(self):
-        # update configuration and posture task
-        self.reduced_configuration.update(self.robot_model.q_reduced)
+        # update posture task
         self.posture_task.set_target_from_configuration(self.reduced_configuration)
 
         # solve IK
@@ -449,7 +463,6 @@ class ArmController:
 
         vel_full = np.zeros(self.robot_model.model.nv)
         vel_full[self.robot_model.reduced_mask] = vel
-
         vel_full = self.limit_joint_vel(vel_full)
 
         return vel_full
@@ -463,6 +476,10 @@ class ArmController:
         if self.visualize:
             self.robot_model.update_visualizer()
             self.robot_model.visualize_wrench(self.left_ee_name)
+
+        # update configuration
+        self.configuration.update(self.robot_model.q)
+        self.reduced_configuration.update(self.robot_model.q_reduced)
 
         # solve IK and apply the control
         vel = self.solve_ik()
@@ -480,6 +497,10 @@ class ArmController:
             self.robot_model.update_visualizer()
             self.robot_model.visualize_wrench(self.left_ee_name)
 
+        # update configuration
+        self.configuration.update(self.robot_model.q)
+        self.reduced_configuration.update(self.robot_model.q_reduced)
+
         # solve IK and apply the control
         vel = self.solve_reduced_ik()
         self.apply_joint_vel(vel)
@@ -493,9 +514,9 @@ class ArmController:
             self.robot_model.update_visualizer()
             self.robot_model.visualize_wrench(self.left_ee_name)
 
-        # update configuration and posture task
+        # update configuration
         self.configuration.update(self.robot_model.q)
-        self.posture_task.set_target_from_configuration(self.configuration)
+        self.reduced_configuration.update(self.robot_model.q_reduced)
 
         # solve IK and apply the control
         vel = self.solve_ik()
@@ -511,9 +532,9 @@ class ArmController:
             self.robot_model.update_visualizer()
             self.robot_model.visualize_wrench(self.left_ee_name)
 
-        # update configuration and posture task
-        self.reduced_configuration.update(self.robot_model.q[self.robot_model.reduced_mask])
-        self.posture_task.set_target_from_configuration(self.reduced_configuration)
+        # update configuration
+        self.configuration.update(self.robot_model.q)
+        self.reduced_configuration.update(self.robot_model.q_reduced)
 
         # solve IK and apply the control
         vel = self.solve_reduced_ik()
