@@ -265,7 +265,7 @@ class RobotModel:
 
 if __name__ == '__main__':
     # a simple shadowing program
-    ChannelFactoryInitialize(id=0)
+    ChannelFactoryInitialize()
     # Example usage
     # robot_model = RobotModel('./assets/h1_2/h1_2_sphere.urdf')
     robot_model = RobotModel('./assets/h1_2/h1_2.urdf')
