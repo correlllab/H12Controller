@@ -115,7 +115,7 @@ with open(output_file, "w") as f:
     for i in range(1, N + 1):
         f.write(f'  <disable_collisions link1="torso_link_sphere{i}" link2="{left_arm_links[0]}" reason="Never"/>\n')
         f.write(f'  <disable_collisions link1="torso_link_sphere{i}" link2="{right_arm_links[0]}" reason="Never"/>\n')
-        for j in range(i + 1, N + 1):
+        for j in range(1, N + 1):
             f.write(f'  <disable_collisions link1="torso_link_sphere{i}" link2="{left_arm_links[0]}_sphere{j}" reason="Never"/>\n')
             f.write(f'  <disable_collisions link1="torso_link_sphere{i}" link2="{right_arm_links[0]}_sphere{j}" reason="Never"/>\n')
     # left arm

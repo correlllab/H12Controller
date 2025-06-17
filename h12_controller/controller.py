@@ -131,7 +131,7 @@ class ArmController:
             n_collision_pairs=len(self.collision_model.collisionPairs),
             gain=20.0,
             safe_displacement_gain=1.0,
-            d_min=0.01,
+            d_min=0.05,
         )
 
         # # spherical collision barriers
