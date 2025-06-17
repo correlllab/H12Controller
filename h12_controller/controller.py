@@ -95,13 +95,16 @@ class ArmController:
             cost=30.0
         )
 
-        # root_path = os.path.dirname(os.path.join(os.path.dirname(__file__), ".."))
-        # self.sphere_model, _, self.collision_model = pin.buildModelsFromUrdf('assets/h1_2/h1_2_sphere.urdf')
-        # self.collision_data = pink.utils.process_collision_pairs(
-        #     self.sphere_model,
-        #     self.collision_model,
-        #     f'{root_path}/assets/h1_2/h1_2_sphere_collision.srdf',
-        # )
+        root_path = os.path.dirname(os.path.dirname(__file__))
+        self.sphere_model, _, self.collision_model = pin.buildModelsFromUrdf(
+            filename=f'{root_path}/assets/h1_2/h1_2_sphere.urdf',
+            package_dirs=f'{root_path}/assets/h1_2',
+        )
+        self.collision_data = pink.utils.process_collision_pairs(
+            self.sphere_model,
+            self.collision_model,
+            f'{root_path}/assets/h1_2/h1_2_sphere_collision.srdf',
+        )
         # self.collision_model = self.robot_model.collision_model
         # self.collision_data = pink.utils.process_collision_pairs(
         #     self.robot_model.model,
@@ -114,8 +117,8 @@ class ArmController:
             self.robot_model.model,
             self.robot_model.data,
             self.robot_model.zero_q,
-            # collision_model=self.collision_model,
-            # collision_data=self.collision_data
+            collision_model=self.collision_model,
+            collision_data=self.collision_data
         )
         self.reduced_configuration = pink.Configuration(
             self.robot_model.reduced_model,
@@ -123,13 +126,13 @@ class ArmController:
             self.robot_model.zero_q_reduced,
         )
 
-        # # collision barriers
-        # self.collision_barrier = pink.barriers.SelfCollisionBarrier(
-        #     n_collision_pairs=len(self.collision_model.collisionPairs),
-        #     gain=20.0,
-        #     safe_displacement_gain=1.0,
-        #     d_min=0.05,
-        # )
+        # collision barriers
+        self.collision_barrier = pink.barriers.SelfCollisionBarrier(
+            n_collision_pairs=len(self.collision_model.collisionPairs),
+            gain=20.0,
+            safe_displacement_gain=1.0,
+            d_min=0.01,
+        )
 
         # # spherical collision barriers
         # self.ee_barrier = pink.barriers.BodySphericalBarrier(
@@ -144,9 +147,9 @@ class ArmController:
         for task in self.tasks:
             task.set_target_from_configuration(self.configuration)
         # set collision barrier
-        self.barriers = []
+        # self.barriers = []
         # self.barriers = [self.ee_barrier]
-        # self.barriers = [self.collision_barrier]
+        self.barriers = [self.collision_barrier]
         # select solver
         self.solver = qpsolvers.available_solvers[0]
         if 'osqp' in qpsolvers.available_solvers:
@@ -497,7 +500,7 @@ class ArmController:
         # print(f'Time: {time.time() - t:.4f}s')
 
     def sim_full_body_step(self):
-        # t = time.time()
+        t = time.time()
         # update robot model
         self.update_robot_model()
 
@@ -506,10 +509,10 @@ class ArmController:
         self.robot_model._q = self.robot_model.q + vel * self.dt
         self.robot_model.update_kinematics()
 
-        # print(f'Time: {time.time() - t:.4f}s')
+        print(f'Time: {time.time() - t:.4f}s')
 
     def sim_dual_arm_step(self):
-        # t = time.time()
+        t = time.time()
         self.update_robot_model()
 
         # solve IK and apply the control
@@ -517,7 +520,7 @@ class ArmController:
         self.robot_model._q = self.robot_model.q + vel * self.dt
         self.robot_model.update_kinematics()
 
-        # print(f'Time: {time.time() - t:.4f}s')
+        print(f'Time: {time.time() - t:.4f}s')
 
     def estop(self):
         self.command_publisher.estop()
@@ -634,5 +637,6 @@ if __name__ == '__main__':
         arm_controller.right_ee_target_pose = [rx, ry, rz, rr, rp, ryaw]
 
         # arm_controller.control_dual_arm_step()
-        arm_controller.sim_dual_arm_step()
+        # arm_controller.sim_dual_arm_step()
+        arm_controller.sim_full_body_step()
         time.sleep(arm_controller.dt)

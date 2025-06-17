@@ -1,3 +1,6 @@
+# number of spheres per link
+N = 4
+
 # disable lower body links and hand links
 disabled_links = [
     "pelvis", "imu_link",
@@ -22,7 +25,7 @@ disabled_links = [
 disabled_link_full = []
 for link in disabled_links:
     disabled_link_full.append(link)
-    for i in range(1, 11):
+    for i in range(1, N + 1):
         disabled_link_full.append(f"{link}_sphere{i}")
 disabled_links = disabled_link_full
 
@@ -55,17 +58,18 @@ all_links = [
 all_links_full = []
 for link in all_links:
     all_links_full.append(link)
-    for i in range(1, 11):
+    for i in range(1, N + 1):
         all_links_full.append(f"{link}_sphere{i}")
 all_links = all_links_full
 
 # enabled links
-enabled_links = [
-    "torso_link",
+left_arm_links = [
     "left_shoulder_pitch_link","left_shoulder_roll_link","left_shoulder_yaw_link",
     "left_elbow_pitch_link","left_elbow_roll_link",
     "left_wrist_pitch_link","left_wrist_yaw_link",
-    "torso_link",
+]
+
+right_arm_links = [
     "right_shoulder_pitch_link","right_shoulder_roll_link","right_shoulder_yaw_link",
     "right_elbow_pitch_link","right_elbow_roll_link",
     "right_wrist_pitch_link","right_wrist_yaw_link"
@@ -86,20 +90,68 @@ with open(output_file, "w") as f:
             f.write(f'  <disable_collisions link1="{dl}" link2="{other}" reason="Never"/>\n')
 
     # disable collisions in single enabled links
-    for i in range(len(enabled_links)):
-        for j in range(1, 11):
-            f.write(f'  <disable_collisions link1="{enabled_links[i]}" link2="{enabled_links[i]}_sphere{j}" reason="Never"/>\n')
-            for k in range(j + 1, 11):
-                f.write(f'  <disable_collisions link1="{enabled_links[i]}_sphere{j}" link2="{enabled_links[i]}_sphere{k}" reason="Never"/>\n')
+    # torso
+    for i in range(1, N + 1):
+        f.write(f'  <disable_collisions link1="torso_link" link2="torso_link_sphere{i}" reason="Never"/>\n')
+        for j in range(i + 1, N + 1):
+            f.write(f'  <disable_collisions link1="torso_link_sphere{i}" link2="torso_link_sphere{j}" reason="Never"/>\n')
+    # left arm
+    for i in range(len(left_arm_links)):
+        for j in range(1, N + 1):
+            f.write(f'  <disable_collisions link1="{left_arm_links[i]}" link2="{left_arm_links[i]}_sphere{j}" reason="Never"/>\n')
+            for k in range(j + 1, N + 1):
+                f.write(f'  <disable_collisions link1="{left_arm_links[i]}_sphere{j}" link2="{left_arm_links[i]}_sphere{k}" reason="Never"/>\n')
+    # right arm
+    for i in range(len(right_arm_links)):
+        for j in range(1, N + 1):
+            f.write(f'  <disable_collisions link1="{right_arm_links[i]}" link2="{right_arm_links[i]}_sphere{j}" reason="Never"/>\n')
+            for k in range(j + 1, N + 1):
+                f.write(f'  <disable_collisions link1="{right_arm_links[i]}_sphere{j}" link2="{right_arm_links[i]}_sphere{k}" reason="Never"/>\n')
 
     # disable collisions between consecutive enabled links
-    for i in range(len(enabled_links) - 1):
-        f.write(f'  <disable_collisions link1="{enabled_links[i]}" link2="{enabled_links[i + 1]}" reason="Never"/>\n')
-        for j in range(1, 11):
-            f.write(f'  <disable_collisions link1="{enabled_links[i]}_sphere{j}" link2="{enabled_links[i + 1]}" reason="Never"/>\n')
-            for k in range(1, 11):
-                f.write(f'  <disable_collisions link1="{enabled_links[i]}" link2="{enabled_links[i + 1]}_sphere{k}" reason="Never"/>\n')
-                f.write(f'  <disable_collisions link1="{enabled_links[i]}_sphere{j}" link2="{enabled_links[i + 1]}_sphere{k}" reason="Never"/>\n')
+    # torso
+    f.write(f'  <disable_collisions link1="torso_link" link2="{left_arm_links[0]}" reason="Never"/>\n')
+    f.write(f'  <disable_collisions link1="torso_link" link2="{right_arm_links[0]}" reason="Never"/>\n')
+    for i in range(1, N + 1):
+        f.write(f'  <disable_collisions link1="torso_link_sphere{i}" link2="{left_arm_links[0]}" reason="Never"/>\n')
+        f.write(f'  <disable_collisions link1="torso_link_sphere{i}" link2="{right_arm_links[0]}" reason="Never"/>\n')
+        for j in range(i + 1, N + 1):
+            f.write(f'  <disable_collisions link1="torso_link_sphere{i}" link2="{left_arm_links[0]}_sphere{j}" reason="Never"/>\n')
+            f.write(f'  <disable_collisions link1="torso_link_sphere{i}" link2="{right_arm_links[0]}_sphere{j}" reason="Never"/>\n')
+    # left arm
+    for i in range(len(left_arm_links) - 1):
+        f.write(f'  <disable_collisions link1="{left_arm_links[i]}" link2="{left_arm_links[i + 1]}" reason="Never"/>\n')
+        for j in range(1, N + 1):
+            f.write(f'  <disable_collisions link1="{left_arm_links[i]}" link2="{left_arm_links[i + 1]}_sphere{j}" reason="Never"/>\n')
+            f.write(f'  <disable_collisions link1="{left_arm_links[i]}_sphere{j}" link2="{left_arm_links[i + 1]}" reason="Never"/>\n')
+            for k in range(1, N + 1):
+                f.write(f'  <disable_collisions link1="{left_arm_links[i]}_sphere{j}" link2="{left_arm_links[i + 1]}_sphere{k}" reason="Never"/>\n')
+    # right arm
+    for i in range(len(right_arm_links) - 1):
+        f.write(f'  <disable_collisions link1="{right_arm_links[i]}" link2="{right_arm_links[i + 1]}" reason="Never"/>\n')
+        for j in range(1, N + 1):
+            f.write(f'  <disable_collisions link1="{right_arm_links[i]}" link2="{right_arm_links[i + 1]}_sphere{j}" reason="Never"/>\n')
+            f.write(f'  <disable_collisions link1="{right_arm_links[i]}_sphere{j}" link2="{right_arm_links[i + 1]}" reason="Never"/>\n')
+            for k in range(1, N + 1):
+                f.write(f'  <disable_collisions link1="{right_arm_links[i]}_sphere{j}" link2="{right_arm_links[i + 1]}_sphere{k}" reason="Never"/>\n')
+
+    # disable collisions between second consecutive links
+    # left arm
+    for i in range(len(left_arm_links) - 2):
+        f.write(f'  <disable_collisions link1="{left_arm_links[i]}" link2="{left_arm_links[i + 2]}" reason="Never"/>\n')
+        for j in range(1, N + 1):
+            f.write(f'  <disable_collisions link1="{left_arm_links[i]}" link2="{left_arm_links[i + 2]}_sphere{j}" reason="Never"/>\n')
+            f.write(f'  <disable_collisions link1="{left_arm_links[i]}_sphere{j}" link2="{left_arm_links[i + 2]}" reason="Never"/>\n')
+            for k in range(1, N + 1):
+                f.write(f'  <disable_collisions link1="{left_arm_links[i]}_sphere{j}" link2="{left_arm_links[i + 2]}_sphere{k}" reason="Never"/>\n')
+    # right arm
+    for i in range(len(right_arm_links) - 2):
+        f.write(f'  <disable_collisions link1="{right_arm_links[i]}" link2="{right_arm_links[i + 2]}" reason="Never"/>\n')
+        for j in range(1, N + 1):
+            f.write(f'  <disable_collisions link1="{right_arm_links[i]}" link2="{right_arm_links[i + 2]}_sphere{j}" reason="Never"/>\n')
+            f.write(f'  <disable_collisions link1="{right_arm_links[i]}_sphere{j}" link2="{right_arm_links[i + 2]}" reason="Never"/>\n')
+            for k in range(1, N + 1):
+                f.write(f'  <disable_collisions link1="{right_arm_links[i]}_sphere{j}" link2="{right_arm_links[i + 2]}_sphere{k}" reason="Never"/>\n')
 
     f.write('\n</robot>\n')
 
