@@ -147,8 +147,8 @@ class ArmController:
             # collision_data=self.collision_data
         )
         self.reduced_configuration = pink.Configuration(
-            self.robot_model.reduced_model,
-            self.robot_model.reduced_data,
+            self.robot_model.model_reduced,
+            self.robot_model.data_reduced,
             self.robot_model.zero_q_reduced,
             collision_model=self.collision_model_reduced,
             collision_data=self.collision_data_reduced
