@@ -96,15 +96,17 @@ class ArmController:
         )
 
         root_path = os.path.dirname(os.path.dirname(__file__))
-        self.sphere_model, _, self.collision_model = pin.buildModelsFromUrdf(
-            filename=f'{root_path}/assets/h1_2/h1_2_sphere.urdf',
-            package_dirs=f'{root_path}/assets/h1_2',
-        )
-        self.collision_data = pink.utils.process_collision_pairs(
-            self.sphere_model,
-            self.collision_model,
-            f'{root_path}/assets/h1_2/h1_2_sphere_collision.srdf',
-        )
+        # # sphere self collision
+        # self.sphere_model, _, self.collision_model = pin.buildModelsFromUrdf(
+        #     filename=f'{root_path}/assets/h1_2/h1_2_sphere.urdf',
+        #     package_dirs=f'{root_path}/assets/h1_2',
+        # )
+        # self.collision_data = pink.utils.process_collision_pairs(
+        #     self.sphere_model,
+        #     self.collision_model,
+        #     f'{root_path}/assets/h1_2/h1_2_sphere_collision.srdf',
+        # )
+        # # mesh self collision
         # self.collision_model = self.robot_model.collision_model
         # self.collision_data = pink.utils.process_collision_pairs(
         #     self.robot_model.model,
@@ -112,23 +114,56 @@ class ArmController:
         #     f'{root_path}/assets/h1_2/h1_2_collision.srdf',
         # )
 
+        # reduced sphere self collision
+        self.sphere_model, _, self.collision_model = pin.buildModelsFromUrdf(
+            filename=f'{root_path}/assets/h1_2/h1_2_sphere.urdf',
+            package_dirs=f'{root_path}/assets/h1_2',
+        )
+        self.sphere_model_reduced, self.collision_model_reduced = pin.buildReducedModel(
+            self.sphere_model,
+            self.collision_model,
+            self.robot_model.frozen_ids,
+            self.robot_model.zero_q
+        )
+        self.collision_data_reduced = pink.utils.process_collision_pairs(
+            self.sphere_model_reduced,
+            self.collision_model_reduced,
+            f'{root_path}/assets/h1_2/h1_2_sphere_collision.srdf',
+        )
+        # # reduced mesh self collision
+        # self.collision_model_reduced = self.robot_model.collision_model_reduced
+        # self.collision_data_reduced = pink.utils.process_collision_pairs(
+        #     self.robot_model.reduced_model,
+        #     self.robot_model.collision_model_reduced,
+        #     f'{root_path}/assets/h1_2/h1_2_collision.srdf'
+        # )
+
         # configuration trakcing robot states
         self.configuration = pink.Configuration(
             self.robot_model.model,
             self.robot_model.data,
             self.robot_model.zero_q,
-            collision_model=self.collision_model,
-            collision_data=self.collision_data
+            # collision_model=self.collision_model,
+            # collision_data=self.collision_data
         )
         self.reduced_configuration = pink.Configuration(
             self.robot_model.reduced_model,
             self.robot_model.reduced_data,
             self.robot_model.zero_q_reduced,
+            collision_model=self.collision_model_reduced,
+            collision_data=self.collision_data_reduced
         )
 
-        # collision barriers
+        # # full collision barriers
+        # self.collision_barrier = pink.barriers.SelfCollisionBarrier(
+        #     n_collision_pairs=len(self.collision_model.collisionPairs),
+        #     gain=20.0,
+        #     safe_displacement_gain=1.0,
+        #     d_min=0.05,
+        # )
+        # reduced collision barriers
         self.collision_barrier = pink.barriers.SelfCollisionBarrier(
-            n_collision_pairs=len(self.collision_model.collisionPairs),
+            n_collision_pairs=len(self.collision_model_reduced.collisionPairs),
             gain=20.0,
             safe_displacement_gain=1.0,
             d_min=0.05,
@@ -637,6 +672,5 @@ if __name__ == '__main__':
         arm_controller.right_ee_target_pose = [rx, ry, rz, rr, rp, ryaw]
 
         # arm_controller.control_dual_arm_step()
-        # arm_controller.sim_dual_arm_step()
-        arm_controller.sim_full_body_step()
+        arm_controller.sim_dual_arm_step()
         time.sleep(arm_controller.dt)

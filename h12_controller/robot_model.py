@@ -63,14 +63,18 @@ class RobotModel:
         frozen_ids = [self.joint_ids[joint_name] for joint_name in frozen_joints]
         frozen_q_ids = [self.joint_q_ids[joint_name] for joint_name in frozen_joints]
         # create a reduced model
-        self.reduced_model = pin.buildReducedModel(self.model,
-                                                   frozen_ids,
-                                                   self.zero_q)
+        self.reduced_model, self.collision_model_reduced = pin.buildReducedModel(
+            self.model,
+            self.collision_model,
+            frozen_ids,
+            self.zero_q
+        )
         self.reduced_data = self.reduced_model.createData()
         # set the reduced mask
         self.reduced_mask[frozen_q_ids] = False
         # update the reduced q ids
         self.reduced_q_ids = [self.joint_q_ids[joint_name] for joint_name in enabled_joints]
+        self.frozen_ids = frozen_ids
 
     @property
     def q(self):
