@@ -564,9 +564,9 @@ class ArmController:
         # zero out kp
         self.command_publisher.kp.fill(0.0)
         # gain on kd for damping
-        self.command_publisher.kd.fill(3.0)
+        self.command_publisher.kd.fill(10.0)
         self.command_publisher.dq.fill(0.0)
-        print('All kp and kd are set to zero.')
+        print('Set kp to zero, kd to 10.0 and dq to 0')
 
     def gravity_compensation_step(self):
         # sync and update robot model
