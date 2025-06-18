@@ -560,6 +560,28 @@ class ArmController:
     def estop(self):
         self.command_publisher.estop()
 
+    def damp_mode(self):
+        # zero out kp
+        self.command_publisher.kp.fill(0.0)
+        # gain on kd for damping
+        self.command_publisher.kd.fill(3.0)
+        self.command_publisher.dq.fill(0.0)
+        print('All kp and kd are set to zero.')
+
+    def gravity_compensation_step(self):
+        # sync and update robot model
+        self.sync_robot_model()
+        self.update_robot_model()
+
+        # compute tau for gravity compensation
+        tau = pin.rnea(self.robot_model.model,
+                       self.robot_model.data,
+                       self.robot_model.q,
+                       np.zeros(self.robot_model.model.nv),
+                       np.zeros(self.robot_model.model.nv))
+
+        self.command_publisher.tau = tau[self.robot_model.body_q_ids]
+
 if __name__ == '__main__':
     # example usage
     arm_controller = ArmController('assets/h1_2/h1_2.urdf',

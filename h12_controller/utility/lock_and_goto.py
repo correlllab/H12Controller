@@ -4,7 +4,7 @@ import numpy as np
 
 import os
 import sys
-sys.path.insert(1, os.path.realpath(os.path.join(sys.path[0], '..')))
+sys.path.insert(1, os.path.dirname(os.path.dirname(__file__)))
 from controller import ArmController
 
 def lock():
