@@ -40,7 +40,7 @@ class ArmController:
         # initialize command publisher for upper body motors
         self.command_publisher = CommandPublisher()
 
-        # gain for arms
+        # gain for shoulder
         self.command_publisher.kp[13:16] = 180.0
         self.command_publisher.kd[13:16] = 3.0
         self.command_publisher.kp[20:23] = 180.0
@@ -195,7 +195,16 @@ class ArmController:
 
         # i control on dq
         self.dq_i = np.zeros(self.robot_model.model.nv)
-        self.K_i = np.diag([0.05] * self.robot_model.model.nv)
+        self.K_i = np.zeros(self.robot_model.model.nv)
+        # gain for shoulder
+        self.K_i[13:16] = 320.0
+        self.K_i[32:35] = 320.0
+        # gain for elbow
+        self.K_i[16:18] = 220.0
+        self.K_i[35:37] = 220.0
+        # gain for wrist
+        self.K_i[18:20] = 120.0
+        self.K_i[37:39] = 120.0
 
     '''
     joint position for left and right arms
@@ -577,8 +586,45 @@ class ArmController:
         self.sync_robot_model()
         self.update_robot_model()
 
+        left_wrench = self.robot_model.get_frame_wrench(self.left_ee_name)
+        right_wrench = self.robot_model.get_frame_wrench(self.right_ee_name)
+        left_force = np.linalg.norm(left_wrench[:3])
+        right_force = np.linalg.norm(right_wrench[:3])
+        left_torque = np.linalg.norm(left_wrench[3:])
+        right_torque = np.linalg.norm(right_wrench[3:])
+        # threshold for left shoulder joints
+        if left_force > 24.0:
+            self.dq_i[13:16] = 0.0
+        # threshold for left elbow joints
+        if left_force > 20.0:
+            self.dq_i[16:18] = 0.0
+        # threshold for left wrist joints
+        if left_force > 12.0:
+            self.dq_i[18:20] = 0.0
+        # threshold for right shoulder joints
+        if right_force > 24.0:
+            self.dq_i[32:35] = 0.0
+        # threshold for right elbow joints
+        if right_force > 20.0:
+            self.dq_i[35:37] = 0.0
+        # threshold for right wrist joints
+        if right_force > 12.0:
+            self.dq_i[37:39] = 0.0
+
+        # threshold for left shoulder yaw joints
+        if left_torque > 4.0:
+            self.dq_i[15] = 0.0
+        # threshold for left elbow roll joints
+        if left_torque > 2.0:
+            self.dq_i[17] = 0.0
+        # threshold for right shoulder yaw joints
+        if right_torque > 4.0:
+            self.dq_i[34] = 0.0
+        # threshold for right elbow roll joints
+        if right_torque > 2.0:
+            self.dq_i[36] = 0.0
+
         # integral dq
-        self.dq_i *= 0.9
         self.dq_i += self.robot_model.dq * self.dt
 
         # compute tau for gravity compensation
@@ -588,7 +634,7 @@ class ArmController:
                        np.zeros(self.robot_model.model.nv),
                        np.zeros(self.robot_model.model.nv))
 
-        self.command_publisher.tau = (tau - self.K_i @ self.dq_i)[self.robot_model.body_q_ids]
+        self.command_publisher.tau = (tau - self.K_i * self.dq_i)[self.robot_model.body_q_ids]
 
 if __name__ == '__main__':
     # example usage
