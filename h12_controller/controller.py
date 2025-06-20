@@ -193,6 +193,10 @@ class ArmController:
         if self.visualize:
             self.robot_model.init_visualizer()
 
+        # i control on dq
+        self.dq_i = np.zeros(self.robot_model.model.nv)
+        self.K_i = np.diag([0.05] * self.robot_model.model.nv)
+
     '''
     joint position for left and right arms
     '''
@@ -573,6 +577,10 @@ class ArmController:
         self.sync_robot_model()
         self.update_robot_model()
 
+        # integral dq
+        self.dq_i *= 0.9
+        self.dq_i += self.robot_model.dq * self.dt
+
         # compute tau for gravity compensation
         tau = pin.rnea(self.robot_model.model,
                        self.robot_model.data,
@@ -580,7 +588,7 @@ class ArmController:
                        np.zeros(self.robot_model.model.nv),
                        np.zeros(self.robot_model.model.nv))
 
-        self.command_publisher.tau = tau[self.robot_model.body_q_ids]
+        self.command_publisher.tau = (tau - self.K_i @ self.dq_i)[self.robot_model.body_q_ids]
 
 if __name__ == '__main__':
     # example usage
