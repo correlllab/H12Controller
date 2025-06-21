@@ -166,7 +166,7 @@ class ArmController:
             n_collision_pairs=len(self.collision_model_reduced.collisionPairs),
             gain=20.0,
             safe_displacement_gain=1.0,
-            d_min=0.01,
+            d_min=0.03,
         )
 
         # # spherical collision barriers
@@ -639,7 +639,7 @@ class ArmController:
 if __name__ == '__main__':
     # example usage
     arm_controller = ArmController('assets/h1_2/h1_2.urdf',
-                                   dt=0.05,
+                                   dt=0.02,
                                    vlim=1.0,
                                    visualize=True)
 
@@ -748,6 +748,6 @@ if __name__ == '__main__':
         ryaw = slider_ryaw.get()
         arm_controller.right_ee_target_pose = [rx, ry, rz, rr, rp, ryaw]
 
-        # arm_controller.control_dual_arm_step()
-        arm_controller.sim_dual_arm_step()
+        arm_controller.control_dual_arm_step()
+        # arm_controller.sim_dual_arm_step()
         time.sleep(max(0.0, arm_controller.dt - (time.time() - start_time)))
