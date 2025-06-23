@@ -636,6 +636,33 @@ class ArmController:
 
         self.command_publisher.tau = (tau - self.K_i * self.dq_i)[self.robot_model.body_q_ids]
 
+    def impedance_step(self, x_target):
+        # sync and update robot model
+        self.sync_robot_model()
+        self.update_robot_model()
+
+        # compute control in Cartesian space
+        x = self.left_ee_position
+        dx = self.robot_model.compute_frame_twist(self.left_ee_name, self.robot_model.dq)[0:3]
+
+        # spring damper
+        K_p = np.array([10.0, 10.0, 10.0])
+        K_d = np.array([0.5, 0.5, 0.5])
+        F = K_p * (x_target - x) + K_d * (-dx)
+
+        # inverse dynamics
+        J_left = self.robot_model.get_frame_jacobian(self.left_ee_name)
+        tau = J_left.T @ F
+        tau_gravity = pin.rnea(self.robot_model.model,
+                               self.robot_model.data,
+                               self.robot_model.q,
+                               np.zeros(self.robot_model.model.nv),
+                               np.zeros(self.robot_model.model.nv))
+
+        # apply the control
+        self.command_publisher.tau = (tau + tau_gravity)[self.robot_model.body_q_ids]
+
+
 if __name__ == '__main__':
     # example usage
     arm_controller = ArmController('assets/h1_2/h1_2.urdf',
