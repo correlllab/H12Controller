@@ -477,7 +477,7 @@ class ArmController:
             [self.joint_task],
             dt=self.dt,
             solver=self.solver,
-            barriers=self.barriers,
+            barriers=[],
             safety_break=False
         )
 
@@ -495,7 +495,7 @@ class ArmController:
             self.tasks,
             dt=self.dt,
             solver=self.solver,
-            barriers=self.barriers,
+            barriers=[],
             safety_break=False
         )
 
@@ -573,13 +573,13 @@ class ArmController:
     def estop(self):
         self.command_publisher.estop()
 
-    def damp_mode(self):
+    def damp_mode(self, kd=3.0):
         # zero out kp
         self.command_publisher.kp.fill(0.0)
         # gain on kd for damping
-        self.command_publisher.kd.fill(10.0)
+        self.command_publisher.kd.fill(kd)
         self.command_publisher.dq.fill(0.0)
-        print('Set kp to zero, kd to 10.0 and dq to 0')
+        print(f'Set kp to zero, kd to {kd} and dq to 0')
 
     def gravity_compensation_step(self):
         # sync and update robot model
@@ -646,13 +646,13 @@ class ArmController:
         dx = self.robot_model.compute_frame_twist(self.left_ee_name, self.robot_model.dq)[0:3]
 
         # spring damper
-        K_p = np.array([10.0, 10.0, 10.0])
-        K_d = np.array([0.5, 0.5, 0.5])
+        K_p = np.array([100.0, 500.0, 500.0])
+        K_d = np.array([5.0, 15.0, 15.0])
         F = K_p * (x_target - x) + K_d * (-dx)
 
         # inverse dynamics
         J_left = self.robot_model.get_frame_jacobian(self.left_ee_name)
-        tau = J_left.T @ F
+        tau = J_left.T @ np.concatenate([F, np.zeros(3)])
         tau_gravity = pin.rnea(self.robot_model.model,
                                self.robot_model.data,
                                self.robot_model.q,

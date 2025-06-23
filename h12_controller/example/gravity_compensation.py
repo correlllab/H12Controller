@@ -11,9 +11,9 @@ def main():
     arm_controller = ArmController('assets/h1_2/h1_2.urdf',
                                    dt=0.01,
                                    vlim=1.0,
-                                   visualize=True)
+                                   visualize=False)
     # set gain for damp mode
-    arm_controller.damp_mode()
+    arm_controller.damp_mode(5.0)
 
     while True:
         start_time = time.time()
