@@ -6,6 +6,21 @@ import os
 import sys
 sys.path.insert(1, os.path.dirname(os.path.dirname(__file__)))
 from controller import ArmController
+from robot_model import RobotModel
+
+from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+
+def save():
+    ChannelFactoryInitialize()
+    print('Initializing RobotModel...')
+    robot_model = RobotModel('assets/h1_2/h1_2.urdf')
+    robot_model.init_subscriber()
+    time.sleep(3.0)
+    robot_model.sync_subscriber()
+    robot_model.update_kinematics()
+    print('Saving current configuration...')
+    q = robot_model.q
+    np.save('./data/h1_2_configuration.npy', q)
 
 def lock():
     print('Initializing ArmController...')
@@ -40,6 +55,7 @@ def goto():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Command selector")
     group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--save", action="store_true", help="Call the save() function")
     group.add_argument("--lock", action="store_true", help="Call the lock() function")
     group.add_argument("--goto", action="store_true", help="Call the goto() function")
 
@@ -49,3 +65,5 @@ if __name__ == "__main__":
         lock()
     elif args.goto:
         goto()
+    elif args.save:
+        save()
