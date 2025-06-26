@@ -68,6 +68,7 @@ class ArmController:
         # initialize IK tasks
         # left arm end effector task
         self.left_ee_name = 'left_wrist_yaw_link'
+        self.left_ee_id = self.robot_model.model.getFrameId(self.left_ee_name)
         self.left_ee_task = pink.FrameTask(
             self.left_ee_name,
             position_cost=50.0,
@@ -76,6 +77,7 @@ class ArmController:
         )
         # right arm end effector task
         self.right_ee_name = 'right_wrist_yaw_link'
+        self.right_ee_id = self.robot_model.model.getFrameId(self.right_ee_name)
         self.right_ee_task = pink.FrameTask(
             self.right_ee_name,
             position_cost=50.0,
@@ -195,16 +197,16 @@ class ArmController:
 
         # i control on dq
         self.dq_i = np.zeros(self.robot_model.model.nv)
-        self.K_i = np.zeros(self.robot_model.model.nv)
+        self.ki = np.zeros(self.robot_model.model.nv)
         # gain for shoulder
-        self.K_i[13:16] = 320.0
-        self.K_i[32:35] = 320.0
+        self.ki[13:16] = 320.0
+        self.ki[32:35] = 320.0
         # gain for elbow
-        self.K_i[16:18] = 220.0
-        self.K_i[35:37] = 220.0
+        self.ki[16:18] = 220.0
+        self.ki[35:37] = 220.0
         # gain for wrist
-        self.K_i[18:20] = 120.0
-        self.K_i[37:39] = 120.0
+        self.ki[18:20] = 120.0
+        self.ki[37:39] = 120.0
 
     '''
     joint position for left and right arms
@@ -628,40 +630,50 @@ class ArmController:
         self.dq_i += self.robot_model.dq * self.dt
 
         # compute tau for gravity compensation
-        tau = pin.rnea(self.robot_model.model,
-                       self.robot_model.data,
-                       self.robot_model.q,
-                       np.zeros(self.robot_model.model.nv),
-                       np.zeros(self.robot_model.model.nv))
+        tau = pin.computeGeneralizedGravity(
+            self.robot_model.model,
+            self.robot_model.data,
+            self.robot_model.q
+        )
 
-        self.command_publisher.tau = (tau - self.K_i * self.dq_i)[self.robot_model.body_q_ids]
+        self.command_publisher.tau = (tau - self.ki * self.dq_i)[self.robot_model.body_q_ids]
 
     def impedance_step(self, x_target):
         # sync and update robot model
         self.sync_robot_model()
         self.update_robot_model()
 
-        # compute control in Cartesian space
+        # solve IK to get joint velocity
+        vel = self.solve_reduced_ik()
+
+        # get states in Cartesian space
         x = self.left_ee_position
         dx = self.robot_model.compute_frame_twist(self.left_ee_name, self.robot_model.dq)[0:3]
 
+        # get target states
+        q_target = self.robot_model.q + self.dt * vel
+        pin.forwardKinematics(self.robot_model.model, self.robot_model.data, q_target)
+        x_target = pin.updateFramePlacement(
+            self.robot_model.model,
+            self.robot_model.data,
+            self.left_ee_id).translation
+
         # spring damper
-        K_p = np.array([100.0, 500.0, 500.0])
-        K_d = np.array([5.0, 15.0, 15.0])
-        F = K_p * (x_target - x) + K_d * (-dx)
+        kp = np.array([100.0, 500.0, 500.0])
+        kd = np.array([5.0, 15.0, 15.0])
+        F = kp * (x_target - x) + kd * (-dx)
 
         # inverse dynamics
         J_left = self.robot_model.get_frame_jacobian(self.left_ee_name)
         tau = J_left.T @ np.concatenate([F, np.zeros(3)])
-        tau_gravity = pin.rnea(self.robot_model.model,
-                               self.robot_model.data,
-                               self.robot_model.q,
-                               np.zeros(self.robot_model.model.nv),
-                               np.zeros(self.robot_model.model.nv))
+        tau_gravity = pin.computeGeneralizedGravity(
+            self.robot_model.model,
+            self.robot_model.data,
+            self.robot_model.q
+        )
 
         # apply the control
         self.command_publisher.tau = (tau + tau_gravity)[self.robot_model.body_q_ids]
-
 
 if __name__ == '__main__':
     # example usage
