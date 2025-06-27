@@ -656,19 +656,12 @@ class ArmController:
 
         # get states in Cartesian space
         x = self.left_ee_position
-        dx = self.robot_model.compute_frame_twist(self.left_ee_name, self.robot_model.dq)[0:3]
-
-        # get target states
-        q_target = self.robot_model.q + self.dt * vel
-        pin.forwardKinematics(self.robot_model.model, self.robot_model.data, q_target)
-        x_target = pin.updateFramePlacement(
-            self.robot_model.model,
-            self.robot_model.data,
-            self.left_ee_id).translation
+        dx = self.robot_model.get_frame_twist(self.left_ee_name)[0:3]
 
         # spring damper
-        kp = np.array([100.0, 500.0, 500.0])
-        kd = np.array([5.0, 15.0, 15.0])
+        kp = np.array([100.0, 100.0, 100.0])
+        kd = np.array([5.0, 5.0, 5.0])
+        x_target = self.left_ee_target_position
         F = kp * (x_target - x) + kd * (-dx)
 
         # inverse dynamics
@@ -679,9 +672,18 @@ class ArmController:
             self.robot_model.data,
             self.robot_model.q
         )
+        tau_cmd = tau + tau_gravity
+
+        ## ! cursed code causing catastrophic failure
+        # q = self.robot_model.q
+        # q_target = self.robot_model.q + vel * self.dt
+        # dq = self.robot_model.dq
+        # # joint space control
+        # tau_positional = 100 * (q_target - q) - 5 * dq
+        ## ! cursed code causing catastrophic failure
 
         # apply the control
-        self.command_publisher.tau = (tau + tau_gravity)[self.robot_model.body_q_ids]
+        self.command_publisher.tau = tau_cmd[self.robot_model.body_q_ids]
 
 if __name__ == '__main__':
     # example usage
