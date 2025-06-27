@@ -17,11 +17,13 @@ from robot_model import RobotModel
 from channel_interface import CommandPublisher
 
 class ArmController:
-    def __init__(self, filename, dt=0.01, vlim=1.0, visualize=False):
+    def __init__(self, filename,
+                 dt=0.02, vlim=1.0, wlim=3.0, visualize=False):
         # initialize robot model
         self.robot_model = RobotModel(filename)
         self.dt = dt
         self.vlim = vlim
+        self.wlim = wlim
         self.visualize = visualize
 
         # initialize channel
@@ -423,15 +425,21 @@ class ArmController:
         self.reduced_configuration.update(self.robot_model.q_reduced)
 
     def limit_joint_vel(self, vel):
-        # compute end effector velocity
-        v_left = self.robot_model.compute_frame_twist(self.left_ee_name, vel)[0:3]
-        v_right = self.robot_model.compute_frame_twist(self.right_ee_name, vel)[0:3]
-        # limit end effector velocity
-        scaler = np.min([0.3,
+        # get end effector twist
+        twist_left = self.robot_model.compute_frame_twist(self.left_ee_name, vel)
+        twist_right = self.robot_model.compute_frame_twist(self.right_ee_name, vel)
+        # compute end effector velocity and angular velocity
+        v_left, w_left = twist_left[:3], twist_left[3:]
+        v_right, w_right = twist_right[:3], twist_right[3:]
+        # limit end effector velocity and angular velocity
+        v_scaler = np.min([0.3,
                          self.vlim / (np.linalg.norm(v_left) + 1e-3),
                          self.vlim / (np.linalg.norm(v_right) + 1e-3)])
+        w_scaler = np.min([0.3,
+                           self.wlim / (np.linalg.norm(w_left) + 1e-3),
+                           self.wlim / (np.linalg.norm(w_right) + 1e-3)])
 
-        return scaler * vel
+        return np.min([v_scaler, w_scaler]) * vel
 
     def apply_joint_vel(self, vel):
         # solve dynamics
@@ -680,6 +688,7 @@ if __name__ == '__main__':
     arm_controller = ArmController('assets/h1_2/h1_2.urdf',
                                    dt=0.02,
                                    vlim=1.0,
+                                   wlim=3.0,
                                    visualize=True)
 
     root = tk.Tk()
