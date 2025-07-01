@@ -651,15 +651,15 @@ class ArmController:
         self.sync_robot_model()
         self.update_robot_model()
 
-        # solve IK to get joint velocity
-        vel = self.solve_reduced_ik()
+        # # solve IK to get joint velocity
+        # vel = self.solve_reduced_ik()
 
         # get states in Cartesian space
         x = self.left_ee_position
         dx = self.robot_model.get_frame_twist(self.left_ee_name)[0:3]
 
         # spring damper
-        kp = np.array([100.0, 100.0, 100.0])
+        kp = np.array([300.0, 300.0, 300.0])
         kd = np.array([5.0, 5.0, 5.0])
         x_target = self.left_ee_target_position
         F = kp * (x_target - x) + kd * (-dx)
@@ -674,13 +674,13 @@ class ArmController:
         )
         tau_cmd = tau + tau_gravity
 
-        ## ! cursed code causing catastrophic failure
+        # # ! cursed code causing catastrophic failure
         # q = self.robot_model.q
         # q_target = self.robot_model.q + vel * self.dt
         # dq = self.robot_model.dq
         # # joint space control
         # tau_positional = 100 * (q_target - q) - 5 * dq
-        ## ! cursed code causing catastrophic failure
+        # # ! cursed code causing catastrophic failure
 
         # apply the control
         self.command_publisher.tau = tau_cmd[self.robot_model.body_q_ids]

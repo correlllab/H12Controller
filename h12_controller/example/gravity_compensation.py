@@ -13,7 +13,7 @@ def main():
                                    vlim=1.0,
                                    visualize=False)
     # set gain for damp mode
-    arm_controller.damp_mode(5.0)
+    arm_controller.damp_mode(6.0)
 
     while True:
         start_time = time.time()
