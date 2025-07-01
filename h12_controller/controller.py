@@ -583,7 +583,7 @@ class ArmController:
     def estop(self):
         self.command_publisher.estop()
 
-    def damp_mode(self, kd=3.0):
+    def damp_mode(self, kd=5.0):
         # zero out kp
         self.command_publisher.kp.fill(0.0)
         # gain on kd for damping
