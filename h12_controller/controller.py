@@ -18,7 +18,7 @@ from channel_interface import CommandPublisher
 
 class ArmController:
     def __init__(self, filename,
-                 dt=0.02, vlim=1.0, wlim=3.0, visualize=False):
+                 dt=0.02, vlim=1.0, wlim=2.0, visualize=False):
         # initialize robot model
         self.robot_model = RobotModel(filename)
         self.dt = dt
@@ -690,7 +690,7 @@ if __name__ == '__main__':
     arm_controller = ArmController('assets/h1_2/h1_2.urdf',
                                    dt=0.02,
                                    vlim=1.0,
-                                   wlim=3.0,
+                                   wlim=2.0,
                                    visualize=True)
 
     root = tk.Tk()

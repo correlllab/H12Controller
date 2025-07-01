@@ -23,7 +23,7 @@ def save_data():
     left_ee_twist_arr = []
     right_ee_twist_arr = []
 
-    for _ in tqdm(range(1000)):
+    for _ in tqdm(range(3000)):
         # sync data
         robot_model.sync_subscriber()
         robot_model.update_kinematics()
@@ -69,10 +69,10 @@ def print_data():
     # different joints
     # 14-20 left arm joints
     # 33-39 right arm joints
-    print('left arm joint velocity mean:', np.mean(np.abs(dq_arr[:, 14:21]), axis=0))
-    print('left arm joint velocity max:', np.max(np.abs(dq_arr[:, 14:21]), axis=0))
-    print('right arm joint velocity mean:', np.mean(np.abs(dq_arr[:, 33:40]), axis=0))
-    print('right arm joint velocity max:', np.max(np.abs(dq_arr[:, 33:40]), axis=0))
+    print('left arm joint velocity mean:', np.mean(np.abs(dq_arr[:, 13:20]), axis=0))
+    print('left arm joint velocity max:', np.max(np.abs(dq_arr[:, 13:20]), axis=0))
+    print('right arm joint velocity mean:', np.mean(np.abs(dq_arr[:, 32:39]), axis=0))
+    print('right arm joint velocity max:', np.max(np.abs(dq_arr[:, 32:39]), axis=0))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Command selector')
