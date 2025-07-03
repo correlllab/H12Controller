@@ -3,7 +3,7 @@ import numpy as np
 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber, ChannelPublisher
 
-from unitree_sdk2py.idl.unitree_go.msg.dds_ import SportModeState_, MotorStates_
+from unitree_sdk2py.idl.unitree_go.msg.dds_ import SportModeState_, MotorStates_, MotorCmds_, MotorCmd_
 from unitree_sdk2py.idl.default import unitree_go_msg_dds__SportModeState_
 from unitree_sdk2py.utils.thread import RecurrentThread
 from unitree_sdk2py.utils.crc import CRC
@@ -18,6 +18,7 @@ TOPIC_LOWSTATE = 'rt/lowstate'
 TOPIC_HIGHSTATE = 'rt/sportmodestate'
 TOPIC_HANDSTATE = 'rt/inspire/state'
 NUM_MOTOR = 27
+NUM_HAND_DOF = 12
 
 class StateSubscriber:
     def __init__(self):
@@ -107,3 +108,57 @@ class CommandPublisher:
 
     def estop(self):
         self.mode = np.zeros(NUM_MOTOR, dtype=np.int32)
+
+class HandSubscriber:
+    def __init__(self):
+        # variables tracking hand states
+        self._q = np.zeros(NUM_HAND_DOF)
+
+        # subscribe hand state
+        self.hand_state_subscriber = ChannelSubscriber(TOPIC_HANDSTATE, MotorStates_)
+        self.hand_state_subscriber.Init(self.subscribe_hand_state, 10)
+
+    def subscribe_hand_state(self, msg: MotorStates_):
+        for i in range(NUM_HAND_DOF):
+            self._q[i] = msg.states[i].q
+
+    @property
+    def q(self):
+        return np.copy(self._q)
+
+    @property
+    def q_left(self):
+        return np.copy(self._q[6:12])
+
+    @property
+    def q_right(self):
+        return np.copy(self._q[0:6])
+
+class HandPublisher:
+    def __init__(self):
+        # variables saving hand states
+        self.q = np.zeros(NUM_HAND_DOF)
+
+        # publish hand command
+        self.hand_cmd_publisher = ChannelPublisher(TOPIC_HANDSTATE, LowCmd_)
+        self.hand_cmd_publisher.Init()
+
+        # initialize hand command
+        self.hand_cmd = MotorCmds_()
+        self.hand_cmd.cmds = [MotorCmd_() for _ in range(NUM_HAND_DOF)]
+
+        # start publisher thread
+        self.hand_cmd_thread = RecurrentThread(
+            interval=0.005,
+            target=self.publish_hand_cmd,
+            name='hand_cmd_thread'
+        )
+
+        print('HandPublisher initialized.')
+        self.hand_cmd_thread.Start()
+
+    def publish_hand_cmd(self):
+        for i in range(NUM_HAND_DOF):
+            self.hand_cmd.cmds[i].q = self.q[i]
+        # write to publisher
+        self.hand_cmd_publisher.Write(self.hand_cmd)

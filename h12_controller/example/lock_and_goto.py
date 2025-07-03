@@ -5,7 +5,7 @@ import numpy as np
 import os
 import sys
 sys.path.insert(1, os.path.dirname(os.path.dirname(__file__)))
-from controller import ArmController
+from h12_controller.arm_controller import ArmController
 from robot_model import RobotModel
 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize

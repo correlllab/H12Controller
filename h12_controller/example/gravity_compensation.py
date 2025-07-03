@@ -4,7 +4,7 @@ import numpy as np
 import os
 import sys
 sys.path.insert(1, os.path.dirname(os.path.dirname(__file__)))
-from controller import ArmController
+from h12_controller.arm_controller import ArmController
 
 def main():
     print('Initializing ArmController...')

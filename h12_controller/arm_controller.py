@@ -7,7 +7,6 @@ import qpsolvers
 import pinocchio as pin
 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
-from unitree_sdk2py.utils.thread import RecurrentThread
 
 import sys
 import os
@@ -432,10 +431,10 @@ class ArmController:
         v_left, w_left = twist_left[:3], twist_left[3:]
         v_right, w_right = twist_right[:3], twist_right[3:]
         # limit end effector velocity and angular velocity
-        v_scaler = np.min([0.3,
+        v_scaler = np.min([1.0,
                          self.vlim / (np.linalg.norm(v_left) + 1e-3),
                          self.vlim / (np.linalg.norm(v_right) + 1e-3)])
-        w_scaler = np.min([0.3,
+        w_scaler = np.min([1.0,
                            self.wlim / (np.linalg.norm(w_left) + 1e-3),
                            self.wlim / (np.linalg.norm(w_right) + 1e-3)])
 
