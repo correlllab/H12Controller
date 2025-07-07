@@ -99,9 +99,9 @@ if __name__ == '__main__':
 
     # pack sliders side by side
     left_frame = tk.Frame(root)
-    right_frame = tk.Frame(root)  # Commented out for now
+    right_frame = tk.Frame(root)
     left_frame.pack(side=tk.LEFT, padx=10, pady=10)
-    right_frame.pack(side=tk.RIGHT, padx=10, pady=10)  # Commented out for now
+    right_frame.pack(side=tk.RIGHT, padx=10, pady=10)
 
     # left hand sliders
     slider_l0 = tk.Scale(left_frame, label="Left Pinky",
