@@ -1,10 +1,10 @@
 import time
 import numpy as np
 
-from unitree_sdk2py.core.channel import ChannelFactoryInitialize, ChannelSubscriber, ChannelPublisher
+from unitree_sdk2py.core.channel import ChannelSubscriber, ChannelPublisher
 
-from unitree_sdk2py.idl.unitree_go.msg.dds_ import SportModeState_, MotorStates_, MotorCmds_, MotorCmd_
-from unitree_sdk2py.idl.default import unitree_go_msg_dds__SportModeState_
+from unitree_sdk2py.idl.unitree_go.msg.dds_ import MotorStates_, MotorCmds_, MotorCmd_
+from unitree_sdk2py.idl.default import unitree_go_msg_dds__MotorCmd_ as MotorCmd_default
 from unitree_sdk2py.utils.thread import RecurrentThread
 from unitree_sdk2py.utils.crc import CRC
 
@@ -17,6 +17,7 @@ TOPIC_LOWCMD = 'rt/lowcmd'
 TOPIC_LOWSTATE = 'rt/lowstate'
 TOPIC_HIGHSTATE = 'rt/sportmodestate'
 TOPIC_HANDSTATE = 'rt/inspire/state'
+TOPIC_HANDCMD = 'rt/inspire/cmd'
 NUM_MOTOR = 27
 NUM_HAND_DOF = 12
 
@@ -135,21 +136,22 @@ class HandSubscriber:
         return np.copy(self._q[0:6])
 
 class HandPublisher:
-    def __init__(self):
+    def __init__(self, dt=0.005):
+        self.dt = dt
         # variables saving hand states
         self.q = np.zeros(NUM_HAND_DOF)
 
         # publish hand command
-        self.hand_cmd_publisher = ChannelPublisher(TOPIC_HANDSTATE, LowCmd_)
+        self.hand_cmd_publisher = ChannelPublisher(TOPIC_HANDCMD, MotorCmds_)
         self.hand_cmd_publisher.Init()
 
         # initialize hand command
         self.hand_cmd = MotorCmds_()
-        self.hand_cmd.cmds = [MotorCmd_() for _ in range(NUM_HAND_DOF)]
+        self.hand_cmd.cmds = [MotorCmd_default() for _ in range(NUM_HAND_DOF)]
 
         # start publisher thread
         self.hand_cmd_thread = RecurrentThread(
-            interval=0.005,
+            interval=self.dt,
             target=self.publish_hand_cmd,
             name='hand_cmd_thread'
         )
