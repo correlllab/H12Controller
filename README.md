@@ -4,6 +4,8 @@ This repo implements a controller for the H1-2 robot.
 
 You can control the position and orientation of the two end-effectors.
 
+> ***This repo is archived and read-only; future development is continued in [h12_ros2_controller](https://github.com/correlllab/h12_ros2_controller) repo.***
+
 ## Installation
 
 - Install Python dependencies from `environment.yml`:
